@@ -1,0 +1,8 @@
+# your bulbs (names, IPs, MACs) — personal, stays on your machine
+bulbs.json
+node_modules/
+.vercel/
+.claude/
+.DS_Store
+build/
+dist/

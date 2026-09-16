@@ -1,0 +1,18 @@
+# Quick checks on every push: syntax and an API smoke test (no bulbs needed).
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - run: node --check server.js && node --check wiz.js && node --check lib/wiz.js && node --check lib/store.js && node --check lib/net.js
+      - run: node -e "new Function(require('fs').readFileSync('public/app.js','utf8'))"
+      - run: node test/smoke.js

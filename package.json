@@ -1,0 +1,48 @@
+{
+  "name": "wiz-control",
+  "version": "1.0.0",
+  "description": "Control Philips WiZ Wi-Fi bulbs locally — web UI, JSON API and CLI. No cloud, no app, no dependencies.",
+  "homepage": "https://github.com/realanshuman/wiz-control",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/realanshuman/wiz-control.git"
+  },
+  "bugs": {
+    "url": "https://github.com/realanshuman/wiz-control/issues"
+  },
+  "main": "lib/wiz.js",
+  "bin": {
+    "wiz": "./wiz.js",
+    "wiz-control": "./server.js"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "discover": "node wiz.js discover",
+    "build:mac": "pkg . --targets node22-macos-arm64,node22-macos-x64 --out-path dist",
+    "build:win": "pkg . --targets node22-win-x64 --out-path dist",
+    "build:linux": "pkg . --targets node22-linux-x64 --out-path dist",
+    "build:all": "pkg . --targets node22-macos-arm64,node22-macos-x64,node22-win-x64,node22-linux-x64 --out-path dist"
+  },
+  "keywords": [
+    "wiz",
+    "philips",
+    "smart-bulb",
+    "smart-home",
+    "local-control",
+    "udp",
+    "iot"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "@yao-pkg/pkg": "^6.22.0"
+  },
+  "pkg": {
+    "assets": [
+      "public/**/*"
+    ],
+    "outputPath": "dist"
+  }
+}
