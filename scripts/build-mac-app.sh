@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# Wraps a pkg-built bridge binary in a double-clickable macOS app and zips it.
+# Wraps a pkg-built bridge binary in a double-clickable macOS app and packages it as a
+# drag-to-Applications DMG (installing to /Applications avoids Gatekeeper app translocation).
 #   scripts/build-mac-app.sh dist/wiz-bridge-arm64 AppleSilicon
-# Produces dist/WiZ-Bridge-macOS-AppleSilicon.zip
+# Produces dist/WiZ-Bridge-macOS-AppleSilicon.dmg
 set -euo pipefail
 BIN="$1"; LABEL="$2"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -53,6 +54,27 @@ iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/AppIcon.icns"
 # Ad-hoc signature (no developer account needed; keeps Apple silicon from refusing to run it).
 codesign --force --deep --sign - "$APP" 2>/dev/null || true
 
-OUT="$ROOT/dist/WiZ-Bridge-macOS-$LABEL.zip"; rm -f "$OUT"
-ditto -c -k --sequesterRsrc --keepParent "$APP" "$OUT"
-echo "built $OUT"
+# Package as a DMG with an Applications shortcut: the user drags the app in, which installs it
+# to /Applications and sidesteps the read-only "app translocation" you get running from Downloads.
+STAGE="$ROOT/build/dmg-$LABEL"; rm -rf "$STAGE"; mkdir -p "$STAGE"
+cp -R "$APP" "$STAGE/"
+ln -s /Applications "$STAGE/Applications"
+cat > "$STAGE/How to install.txt" <<'TXT'
+Drag "WiZ Bridge" onto the Applications folder, then open it from Applications
+(or Launchpad). The first time, macOS may say the developer can't be verified —
+open System Settings > Privacy & Security and click "Open Anyway".
+
+WiZ Bridge has no window: it runs quietly and opens the app in your browser.
+Manage or stop it from the Settings page inside the app.
+TXT
+
+OUT="$ROOT/dist/WiZ-Bridge-macOS-$LABEL.dmg"; rm -f "$OUT"
+if command -v hdiutil >/dev/null 2>&1; then
+  hdiutil create -volname "WiZ Bridge" -srcfolder "$STAGE" -ov -format UDZO "$OUT" >/dev/null
+  echo "built $OUT"
+else
+  # Not on macOS (e.g. a Linux CI lane by mistake): fall back to a zip so the build still yields something.
+  OUT="$ROOT/dist/WiZ-Bridge-macOS-$LABEL.zip"; rm -f "$OUT"
+  ditto -c -k --sequesterRsrc --keepParent "$APP" "$OUT" 2>/dev/null || (cd "$STAGE" && zip -qry "$OUT" "WiZ Bridge.app")
+  echo "built $OUT (zip fallback; hdiutil not available)"
+fi

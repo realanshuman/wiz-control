@@ -48,7 +48,7 @@ if (has('version', 'v')) { console.log(VERSION); process.exit(0); }
 
 const portArg = flag('port') || process.env.PORT;
 if (portArg && !/^\d{2,5}$/.test(portArg)) { console.error(`"${portArg}" is not a valid port number.`); process.exit(2); }
-const PORT = Number(portArg) || 4200;
+let PORT = Number(portArg) || 4200;
 // The packaged app listens on the whole Wi-Fi so phones can open it (WiZ bulbs are open to
 // the LAN anyway); from source it stays on localhost unless --lan is given.
 const HOST = flag('host') || process.env.HOST || (has('lan') ? '0.0.0.0' : has('local') ? '127.0.0.1' : process.pkg ? '0.0.0.0' : '127.0.0.1');
@@ -246,28 +246,66 @@ const server = http.createServer((req, res) => {
     json(res, 500, { error: (e && e.message) || 'Internal error' });
   });
 });
-const local = `http://localhost:${PORT}`;
-const appUrl = flag('app-url') || process.env.APP_URL || local;
-server.on('error', (e) => {
-  if (e.code === 'EADDRINUSE') {
-    console.error(`\nPort ${PORT} is already in use — WiZ Control is probably running already.` + (has('no-open') ? '' : ` Opening ${local}.`) + `\nTo run a second copy, start it with --port ${PORT + 1}.\n`);
-    if (!has('no-open')) openBrowser(appUrl);
-  } else if (e.code === 'EACCES') console.error(`\nNo permission to use port ${PORT}. Try a port above 1024, e.g. --port 4200.\n`);
-  else if (e.code === 'EADDRNOTAVAIL') console.error(`\nThis computer has no network address ${HOST}. Check --host, or leave it out.\n`);
-  else console.error(`\nCould not start: ${e.message}\n`);
-  setTimeout(() => process.exit(1), process.pkg ? 1500 : 100);
-});
-(async () => {
-  await net.start(); // know our LAN addresses before the first request (Host check, /api/ping)
-  server.listen(PORT, HOST, () => {
+const appUrl = (p) => flag('app-url') || process.env.APP_URL || `http://localhost:${p}`;
+// What is already on this port? 'ours' = a WiZ Control bridge, 'other' = something else,
+// 'free' = nothing. Probed by an actual request so it works regardless of how the other
+// process bound the address (0.0.0.0 vs 127.0.0.1 can otherwise both "succeed" on macOS).
+function probePort(p) {
+  return new Promise((resolve) => {
+    const req = http.request({ host: '127.0.0.1', port: p, path: '/api/ping', timeout: 900 }, (res) => {
+      let s = ''; res.on('data', (d) => (s += d)); res.on('end', () => { try { resolve(JSON.parse(s).name === 'wiz-control' ? 'ours' : 'other'); } catch (_) { resolve('other'); } });
+    });
+    req.on('error', (e) => resolve(e.code === 'ECONNREFUSED' ? 'free' : 'other'));
+    req.on('timeout', () => { req.destroy(); resolve('other'); });
+    req.end();
+  });
+}
+
+// Pick a port and listen. If a WiZ Control bridge is already there, hand off to it and open
+// the browser; if something else holds the port, step to the next one (unless the port was
+// given explicitly), so a fresh install never dies silently on a conflict.
+async function start(port, triesLeft) {
+  const chosen = flag('port') || process.env.PORT; // an explicit port is never auto-changed
+  const state = await probePort(port);
+  if (state === 'ours') {
+    console.log(`\nWiZ Control is already running. Opening http://localhost:${port} …\n`);
+    if (!has('no-open')) openBrowser(appUrl(port));
+    return setTimeout(() => process.exit(0), process.pkg ? 1200 : 100);
+  }
+  if (state === 'other') {
+    if (!chosen && triesLeft > 0) { console.error(`Port ${port} is busy; trying ${port + 1} …`); return start(port + 1, triesLeft - 1); }
+    console.error(`\nPort ${port} is in use by another program. Start WiZ Control on a free port, e.g. --port ${port + 1}.\n`);
+    return setTimeout(() => process.exit(1), process.pkg ? 1500 : 100);
+  }
+  server.removeAllListeners('error');
+  server.on('error', async (e) => {
+    // A race: the port filled between the probe and listen. Retry the whole picker once.
+    if (e.code === 'EADDRINUSE' && !chosen && triesLeft > 0) return start(port + 1, triesLeft - 1);
+    if (e.code === 'EADDRINUSE') console.error(`\nPort ${port} is in use. Start WiZ Control on a free port, e.g. --port ${port + 1}.\n`);
+    else if (e.code === 'EACCES') console.error(`\nNo permission to use port ${port}. Try a port above 1024, e.g. --port 4200.\n`);
+    else if (e.code === 'EADDRNOTAVAIL') console.error(`\nThis computer has no network address ${HOST}. Check --host, or leave it out.\n`);
+    else console.error(`\nCould not start: ${e.message}\n`);
+    setTimeout(() => process.exit(1), process.pkg ? 1500 : 100);
+  });
+  server.listen(port, HOST, () => {
+    PORT = port;
+    const local = `http://localhost:${port}`;
     const lines = [``, `  WiZ Control bridge v${VERSION}`, `  ─────────────────────────────`, `  Open:      ${local}`];
-    if (HOST === '0.0.0.0') { const ips = net.info.lanIps; lines.push(ips.length ? `  Phones:    ${ips.map((ip) => `http://${ip}:${PORT}`).join('  or  ')}  (same Wi-Fi; the app shows a QR code)` : `  Phones:    open this computer's address on port ${PORT}`); }
+    if (HOST === '0.0.0.0') { const ips = net.info.lanIps; lines.push(ips.length ? `  Phones:    ${ips.map((ip) => `http://${ip}:${port}`).join('  or  ')}  (same Wi-Fi; the app shows a QR code)` : `  Phones:    open this computer's address on port ${port}`); }
     else lines.push(`  Phones:    start with --lan to allow other devices on your Wi-Fi`);
     lines.push(`  Bulbs:     ${store.list().length} saved  (${store.CONFIG_PATH})`);
     lines.push(process.pkg ? `  Stop it from the app's Settings page, or quit it from your system's task manager.` : `  Leave this window open while you use the app. Press Ctrl+C to stop.`, ``);
     console.log(lines.join('\n'));
-    // If no web page has contacted us within a few seconds (e.g. the app was double-clicked),
-    // open the browser so the user lands in the app without typing anything.
-    if (!has('no-open')) setTimeout(() => { if (!pinged) openBrowser(appUrl); }, 3500);
+    // Open the browser so the user lands in the app without typing anything. A packaged app
+    // (double-clicked, no window) opens right away; run from source we wait briefly in case a
+    // hosted page is about to connect on its own.
+    if (!has('no-open')) {
+      if (process.pkg) openBrowser(appUrl(port));
+      else setTimeout(() => { if (!pinged) openBrowser(appUrl(port)); }, 3000);
+    }
   });
+}
+(async () => {
+  await net.start(); // know our LAN addresses before the first request (Host check, /api/ping)
+  start(PORT, 15);   // try up to 15 ports past the default if something else is squatting
 })();

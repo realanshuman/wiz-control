@@ -7,8 +7,8 @@ const REPO = 'https://github.com/realanshuman/wiz-control';
 const REPO_SPEC = 'github:realanshuman/wiz-control';
 const REL = REPO + '/releases/latest/download';
 const DOWNLOADS = {
-  'mac-arm': { file: 'WiZ-Bridge-macOS-AppleSilicon.zip', label: 'Mac · Apple silicon', sub: 'M1, M2, M3, M4' },
-  'mac-intel': { file: 'WiZ-Bridge-macOS-Intel.zip', label: 'Mac · Intel', sub: 'Macs before 2020' },
+  'mac-arm': { file: 'WiZ-Bridge-macOS-AppleSilicon.dmg', label: 'Mac · Apple silicon', sub: 'M1, M2, M3, M4' },
+  'mac-intel': { file: 'WiZ-Bridge-macOS-Intel.dmg', label: 'Mac · Intel', sub: 'Macs before 2020' },
   'win': { file: 'WiZ-Bridge-Windows.exe', label: 'Windows', sub: '64-bit, Windows 10 or 11' },
   'linux': { file: 'wiz-bridge-linux-x64.tar.gz', label: 'Linux', sub: '64-bit' },
 };
@@ -195,7 +195,7 @@ function wizConnect() {
   const choosing = !!state.choosingBridge;
   el.innerHTML = `
     <h2>First, open the bridge</h2>
-    <p>WiZ bulbs only listen to devices on the same Wi-Fi, so this page needs a small helper on a computer at home. Download it, open it, and this page will notice by itself.</p>
+    <p>WiZ bulbs only listen to devices on the same Wi-Fi, so this page needs a small helper on a computer at home. Download it, open it${os === 'mac' ? ' (drag it into Applications, then open it from there)' : ''}, and this page will notice by itself.</p>
     ${os === 'mobile' ? `<div class="tips" style="margin-bottom:14px"><span>You're on a phone or tablet. Do the setup once on a computer that's on the same Wi-Fi as your bulbs. Its Settings page then shows a QR code that opens the app on this phone.</span></div>` : ''}
     ${os === 'mobile' ? `<details><summary>Downloads for a computer</summary><div class="body"><div class="dl">${order.map((k) => dl(k, false)).join('')}</div></div></details>` : `<div class="dl">${order.map((k, i) => dl(k, i === 0 && os !== 'other' && !(os === 'mac' && i === 1))).join('')}</div>`}
     <div class="wait" id="wait"><span class="pulse"></span><span>Waiting for the bridge to start…</span></div>
