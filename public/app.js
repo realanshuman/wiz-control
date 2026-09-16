@@ -117,6 +117,8 @@ const ICON = {
   logout: '<svg viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5"/><path d="M21 12H9"/></svg>',
   power: '<svg viewBox="0 0 24 24"><path d="M18.4 6.6a9 9 0 1 1-12.8 0"/><path d="M12 2v10"/></svg>',
   sun: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>',
+  moon: '<svg viewBox="0 0 24 24"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>',
+  auto: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 3v18" fill="currentColor" stroke="none"/><path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor" stroke="none"/></svg>',
   scan: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="2.5"/><path d="M7.8 16.2a6 6 0 0 1 0-8.4"/><path d="M16.2 7.8a6 6 0 0 1 0 8.4"/><path d="M4.9 19.1a10 10 0 0 1 0-14.2"/><path d="M19.1 4.9a10 10 0 0 1 0 14.2"/></svg>',
   chevron: '<svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg>',
   download: '<svg viewBox="0 0 24 24"><path d="M12 3v12"/><path d="m7 11 5 5 5-5"/><path d="M5 20h14"/></svg>',
@@ -137,9 +139,33 @@ function topbar({ back, title, sub, right = '' } = {}) {
   return `<header class="topbar">
     ${back ? `<button class="iconbtn ghost" id="tb-back" title="Back">${ICON.back}</button>` : ''}
     ${title ? `<div class="home-title"><b>${esc(title)}</b>${sub ? `<span>${esc(sub)}</span>` : ''}</div>` : `<a class="brand" href="./"><span class="dot"></span>WiZ Control</a>`}
-    <span class="spacer"></span>${right}
+    <span class="spacer"></span>
+    <button class="iconbtn ghost theme-toggle" title="Theme: ${currentTheme()}" aria-label="Switch theme">${themeIcon()}</button>
+    ${right}
   </header>`;
 }
+
+/* ---------- theme (light / dark / auto) ---------- */
+const THEME_ORDER = ['auto', 'light', 'dark'];
+const currentTheme = () => { const t = ls.get('theme'); return THEME_ORDER.includes(t) ? t : 'auto'; };
+const themeIcon = () => ({ auto: ICON.auto, light: ICON.sun, dark: ICON.moon }[currentTheme()]);
+const systemDark = () => { try { return matchMedia('(prefers-color-scheme: dark)').matches; } catch (_) { return true; } };
+const effectiveDark = () => { const t = currentTheme(); return t === 'dark' || (t === 'auto' && systemDark()); };
+function applyTheme() {
+  const t = currentTheme(), root = document.documentElement;
+  if (t === 'auto') root.removeAttribute('data-theme'); else root.setAttribute('data-theme', t);
+  const m = document.querySelector('meta[name="theme-color"]');
+  if (m) m.setAttribute('content', effectiveDark() ? '#0c0e13' : '#f4f6f9');
+}
+function cycleTheme() {
+  ls.set('theme', THEME_ORDER[(THEME_ORDER.indexOf(currentTheme()) + 1) % 3]);
+  applyTheme();
+  const b = $('.theme-toggle'); if (b) { b.innerHTML = themeIcon(); b.title = 'Theme: ' + currentTheme(); }
+  toast('Theme: ' + currentTheme(), true);
+}
+applyTheme();
+try { matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { if (currentTheme() === 'auto') applyTheme(); }); } catch (_) {}
+document.addEventListener('click', (e) => { if (e.target.closest('.theme-toggle')) cycleTheme(); });
 
 /* ---------- landing (hosted, first visit) ---------- */
 // Per-device install wording for step 1, chosen by the visitor's device (and switchable).
