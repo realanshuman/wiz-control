@@ -1,13 +1,14 @@
 #!/usr/bin/env node
 'use strict';
 // Draws the app icon (an amber orb on a dark rounded square) as a PNG, with no dependencies.
-// node scripts/make-icon.js [size] [out.png]
+// node scripts/make-icon.js [size] [out.png] [full]   ("full" = edge-to-edge, for apple-touch-icon)
 const fs = require('fs');
 const zlib = require('zlib');
 const path = require('path');
 
 const SIZE = Number(process.argv[2]) || 1024;
 const OUT = process.argv[3] || path.join(__dirname, '..', 'build', `icon-${SIZE}.png`);
+const FULL = process.argv[4] === 'full';
 
 function crc32(buf) { let c, crc = 0xffffffff; for (let n = 0; n < buf.length; n++) { c = (crc ^ buf[n]) & 0xff; for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1; crc = (crc >>> 8) ^ c; } return (crc ^ 0xffffffff) >>> 0; }
 function chunk(type, data) { const len = Buffer.alloc(4); len.writeUInt32BE(data.length); const td = Buffer.concat([Buffer.from(type), data]); const crc = Buffer.alloc(4); crc.writeUInt32BE(crc32(td)); return Buffer.concat([len, td, crc]); }
@@ -19,9 +20,9 @@ function png(w, h, rgba) {
 }
 const mix = (a, b, t) => a + (b - a) * t;
 const S = SIZE, px = Buffer.alloc(S * S * 4);
-const pad = S * 0.1, rr = S * 0.22, cx = S / 2, cy = S / 2, orbR = S * 0.27;
+const pad = FULL ? 0 : S * 0.1, rr = FULL ? 0 : S * 0.22, cx = S / 2, cy = S / 2, orbR = FULL ? S * 0.3 : S * 0.27;
 const bg = [19, 22, 29], edge = [38, 44, 56];
-const inRounded = (x, y) => { const l = pad, t = pad, r = S - pad, b = S - pad; if (x < l || x > r || y < t || y > b) return 0; const dx = Math.max(l + rr - x, 0, x - (r - rr)), dy = Math.max(t + rr - y, 0, y - (b - rr)); const d = Math.hypot(dx, dy); return d <= rr - 1 ? 1 : d >= rr + 1 ? 0 : (rr + 1 - d) / 2; };
+const inRounded = (x, y) => { const l = pad, t = pad, r = S - pad, b = S - pad; if (x < l || x > r || y < t || y > b) return 0; if (!rr) return 1; const dx = Math.max(l + rr - x, 0, x - (r - rr)), dy = Math.max(t + rr - y, 0, y - (b - rr)); const d = Math.hypot(dx, dy); return d <= rr - 1 ? 1 : d >= rr + 1 ? 0 : (rr + 1 - d) / 2; };
 for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
   const i = (y * S + x) * 4; let r = 0, g = 0, b = 0, a = 0;
   const cov = inRounded(x + 0.5, y + 0.5);

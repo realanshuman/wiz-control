@@ -6,7 +6,7 @@
 
 WiZ Control is two small pieces:
 
-- **The web app**, a page you open in any browser. Guided setup, a dashboard for every bulb, colour wheel, tunable whites, all 32 WiZ scenes, brightness, and a profile for your home.
+- **The web app**, a page you open in any browser. Guided setup, a dashboard for every bulb, colour wheel, tunable whites, all 32 WiZ scenes, brightness, and a profile for your home. It is designed for phones as much as for desktops and can be added to a phone's home screen like an app.
 - **The bridge**, a tiny helper you open once on a computer at home. Bulbs only answer devices on the same Wi-Fi, and a web page can't reach them by itself, so the bridge does the talking. It is a single file, needs nothing installed, and stores everything on your own computer.
 
 Everything happens on your network. Turn the internet off and the lights still work.
@@ -16,6 +16,7 @@ Everything happens on your network. Turn the internet off and the lights still w
 1. Open the web app: **https://wiz-control.vercel.app** (or run your own copy, see below).
 2. Press **Get started** and download the bridge for your computer. Open it once.
 3. Name your home, find your bulbs, done.
+4. On your phone, scan the QR code shown in Settings (or on the last setup step) while on the same Wi-Fi. That opens the same app, served by the bridge.
 
 The first launch of the bridge shows a security prompt because the app isn't signed with a paid developer certificate. On a Mac: **System Settings → Privacy & Security → Open Anyway**. On Windows: **More info → Run anyway**. It happens once.
 
@@ -57,7 +58,8 @@ node wiz.js raw Bedroom getSystemConfig   # any raw WiZ method
 ### Bridge options
 
 ```
-node server.js --lan                     reachable from phones on your Wi-Fi
+node server.js --lan                     reachable from phones on your Wi-Fi (the downloadable app does this by default)
+node server.js --local                   this computer only (the default when run from source)
 node server.js --port 5000               different port
 node server.js --origin https://x.app    allow another website to control this bridge
 node server.js --config ~/bulbs.json     where bulbs and profile are stored
@@ -94,7 +96,7 @@ The web app is static: the `public` folder. Deploy it anywhere. On Vercel, impor
 
 [![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/realanshuman/wiz-control)
 
-A hosted page talks to the bridge on the visitor's own computer at `http://localhost:4200`. The bridge accepts requests from `*.vercel.app` and `localhost` by default; for another domain, the setup page shows the exact command with `--origin` filled in.
+A hosted page talks to the bridge on the visitor's own computer at `http://localhost:4200`. The bridge accepts browser requests only from the official site and `localhost`; a self-hosted copy shows visitors the exact bridge command with `--origin` filled in, and the downloadable app can be told its site with `APP_ORIGIN` at build time.
 
 ### Building the downloadable bridge
 
@@ -103,7 +105,7 @@ Releases are built by GitHub Actions when a tag such as `v1.0.1` is pushed (see 
 ```bash
 npm install
 npm run build:all                  # dist/ gets a binary per platform
-bash scripts/build-mac-app.sh dist/wiz-control-macos-arm64 AppleSilicon   # macOS only: .app + zip
+npx pkg . --targets node22-macos-arm64 --output dist/wiz-bridge-arm64 && bash scripts/build-mac-app.sh dist/wiz-bridge-arm64 AppleSilicon   # macOS: .app + zip
 ```
 
 ## How it works
@@ -124,8 +126,9 @@ WiZ bulbs accept JSON over UDP on port 38899 from any device on the LAN. `getPil
 ## Security notes
 
 - The WiZ protocol has no authentication: any device on your Wi-Fi can already control the bulbs. The bridge doesn't change that.
-- The bridge listens on `localhost` only unless you pass `--lan`.
-- Browsers only let a website talk to the bridge if its origin is on the allow list, and Chrome asks you once before a public site may reach your local network.
+- Run from source, the bridge listens on `localhost` only unless you pass `--lan`. The downloadable app listens on your Wi-Fi so phones can use it; pass `--local` to change that.
+- "Log out" in the app only signs that browser out of the home. Nothing on the bridge is deleted; "Reset" in Settings does that.
+- Browsers only let a website read from the bridge if its origin is on the allow list, and the bridge refuses state changes from any other site (it also checks the Host header, so DNS-rebinding tricks don't work). Chrome asks you once before a public site may reach your local network.
 
 ## Other brands
 

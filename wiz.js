@@ -45,7 +45,7 @@ async function ensureBulbs() {
 async function doDiscover() {
   const found = await wiz.discover({ extraIps: store.list().map((b) => b.ip) });
   store.upsert(found);
-  if (!found.length) { console.log('No WiZ bulbs answered. Check the bulb is powered on and on the same Wi-Fi as this Mac.'); return; }
+  if (!found.length) { console.log('No WiZ bulbs answered. Check the bulb is powered on and on the same Wi-Fi as this computer.'); return; }
   const saved = store.load().bulbs;
   for (const d of found) { const b = saved[store.normMac(d.mac)]; console.log(`${b.name.padEnd(16)} ${d.ip.padEnd(15)} ${d.mac}  ${d.kind} (${d.moduleName}, fw ${d.fwVersion})  ${d.rssi} dBm`); }
   console.log(`\n${found.length} bulb(s) saved to ${store.CONFIG_PATH}`);

@@ -37,6 +37,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>LSUIElement</key><true/>
   <key>NSHighResolutionCapable</key><true/>
   <key>NSHumanReadableCopyright</key><string>MIT License</string>
+  <key>NSLocalNetworkUsageDescription</key><string>WiZ Bridge finds and controls the WiZ bulbs on your Wi-Fi.</string>
 </dict></plist>
 PLIST
 

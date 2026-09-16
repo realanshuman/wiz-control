@@ -1,6 +1,6 @@
 {
   "name": "wiz-control",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Control Philips WiZ Wi-Fi bulbs locally — web UI, JSON API and CLI. No cloud, no app, no dependencies.",
   "homepage": "https://github.com/realanshuman/wiz-control",
   "repository": {
