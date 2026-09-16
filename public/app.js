@@ -5,7 +5,9 @@
 
 const REPO = 'https://github.com/realanshuman/wiz-control';
 const REPO_SPEC = 'github:realanshuman/wiz-control';
-const REL = REPO + '/releases/latest/download';
+// Fixed "latest build" release, refreshed by CI on every push to main. This URL is stable and
+// always serves the newest files, so the buttons never 404 or bounce to a GitHub sign-in.
+const REL = REPO + '/releases/download/latest';
 const DOWNLOADS = {
   'mac-arm': { file: 'WiZ-Bridge-macOS-AppleSilicon.dmg', label: 'Mac · Apple silicon', sub: 'M1, M2, M3, M4' },
   'mac-intel': { file: 'WiZ-Bridge-macOS-Intel.dmg', label: 'Mac · Intel', sub: 'Macs before 2020' },
@@ -117,6 +119,7 @@ const ICON = {
   sun: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>',
   scan: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="2.5"/><path d="M7.8 16.2a6 6 0 0 1 0-8.4"/><path d="M16.2 7.8a6 6 0 0 1 0 8.4"/><path d="M4.9 19.1a10 10 0 0 1 0-14.2"/><path d="M19.1 4.9a10 10 0 0 1 0 14.2"/></svg>',
   chevron: '<svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg>',
+  download: '<svg viewBox="0 0 24 24"><path d="M12 3v12"/><path d="m7 11 5 5 5-5"/><path d="M5 20h14"/></svg>',
   copy: '<svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>',
   bolt: '<svg viewBox="0 0 24 24"><path d="M13 2 3 14h9l-1 8 10-12h-9z"/></svg>',
   wifi: '<svg viewBox="0 0 24 24"><path d="M5 12.6a11 11 0 0 1 14 0"/><path d="M8.5 16a6 6 0 0 1 7 0"/><path d="M2 9a15.5 15.5 0 0 1 20 0"/><circle cx="12" cy="19.5" r=".8"/></svg>',
@@ -139,32 +142,82 @@ function topbar({ back, title, sub, right = '' } = {}) {
 }
 
 /* ---------- landing (hosted, first visit) ---------- */
+// Per-device install wording for step 1, chosen by the visitor's device (and switchable).
+const DEVICES = {
+  mac: { name: 'Mac', icon: ICON.apple, dls: ['mac-arm', 'mac-intel'],
+    how: 'Open the downloaded file, drag <b>WiZ Bridge</b> onto the <b>Applications</b> folder, then open it from Applications.',
+    tip: 'Most Macs from 2020 on are Apple silicon. Older ones are Intel.' },
+  win: { name: 'Windows', icon: ICON.windows, dls: ['win'],
+    how: 'Open the downloaded file. If Windows shows a blue box, click <b>More info</b>, then <b>Run anyway</b>. Allow it through the firewall so your phone can connect too.' },
+  linux: { name: 'Linux', icon: ICON.linux, dls: ['linux'],
+    how: 'Unpack the download and run <code>./wiz-bridge</code> in a terminal.' },
+};
+function dlButton(key, primary) {
+  const d = DOWNLOADS[key], ico = key.startsWith('mac') ? ICON.apple : key === 'win' ? ICON.windows : ICON.linux;
+  return `<a class="dlbtn${primary ? ' primary' : ''}" href="${REL}/${d.file}" download data-start><span class="di">${ico}</span><span class="dt"><b>${d.label}</b><i>${d.sub}</i></span>${ICON.download}</a>`;
+}
+function step1Html(dev) {
+  const d = DEVICES[dev];
+  return `<p class="lstep-how">${d.how}</p>
+    <div class="dls">${d.dls.map((k, i) => dlButton(k, i === 0)).join('')}</div>
+    ${d.tip ? `<p class="lstep-tip">${d.tip}</p>` : ''}
+    <p class="lstep-alt">On a different computer? <button class="linklike" data-dev="${dev === 'mac' ? 'win' : 'mac'}">Show ${dev === 'mac' ? 'Windows' : 'Mac'}</button> · <button class="linklike" data-dev="${dev === 'linux' ? 'mac' : 'linux'}">${dev === 'linux' ? 'Mac' : 'Linux'}</button></p>`;
+}
 function renderLanding() {
   const root = show('landing');
-  root.innerHTML = topbar({ right: `<a class="ghost" href="${REPO}" target="_blank" rel="noopener" style="color:var(--muted);text-decoration:none;font-size:13.5px;padding:7px 10px">GitHub</a><button class="primary" id="start">Get started</button>` }) + `
+  const os = detectOS();
+  const onPhone = os === 'mobile';
+  let dev = ['mac', 'win', 'linux'].includes(os) ? os : 'mac';
+  root.innerHTML = topbar({ right: `<a class="ghost gh-link" href="${REPO}" target="_blank" rel="noopener">GitHub</a><button class="primary" id="start">Get started</button>` }) + `
   <section class="hero">
     <div class="orb-hero"></div>
     <div class="eyebrow">${ICON.bolt.replace('<svg', '<svg width="14" height="14" fill="currentColor"')} For Philips WiZ bulbs</div>
-    <h1>Your lights, your Wi-Fi.<br>No app, no cloud.</h1>
-    <p>Control every WiZ bulb in your home from this page: colours, whites, scenes and brightness. Everything stays on your own network.</p>
-    <div class="cta"><button class="primary lg" id="start2">Get started</button><a class="ghost" href="#how" style="padding:12px 16px;text-decoration:none;color:var(--muted)">How it works</a></div>
+    <h1>Your lights, on your Wi-Fi.<br>No app, no cloud.</h1>
+    <p>Turn WiZ bulbs on and off, dim them, pick any colour or white, and run scenes — all from this page, straight over your home network.</p>
+    <div class="cta"><button class="primary lg" id="start2">Set it up — 3 steps</button><a class="ghost see-how" href="#steps">See how it works</a></div>
   </section>
-  <section class="features">
-    <div class="feature"><div class="ico">${ICON.wifi}</div><b>Finds your bulbs itself</b><p>Scans your Wi-Fi and lists every WiZ bulb, strip and plug it finds. Name them once, they stay named.</p></div>
-    <div class="feature"><div class="ico">${ICON.palette}</div><b>Every colour, every scene</b><p>A colour wheel, tunable whites from candlelight to daylight, and all 32 built-in WiZ scenes.</p></div>
-    <div class="feature"><div class="ico">${ICON.lock}</div><b>Private by design</b><p>No account, no servers in between. Commands go straight from your computer to the bulbs, even with the internet down.</p></div>
-  </section>
-  <section class="how" id="how">
-    <h2>How it works</h2>
-    <ol>
-      <li><span class="n">1</span><div><b>Open the bridge on a computer at home.</b> It's a tiny helper you download once. Bulbs only talk to devices on the same Wi-Fi, and a web page can't do that alone.</div></li>
-      <li><span class="n">2</span><div><b>Name your home.</b> Your name, your home, your Wi-Fi. That's your profile; it lives on your computer, not in a cloud.</div></li>
-      <li><span class="n">3</span><div><b>Find and name your bulbs.</b> One scan finds them all. Then control them from here, or from any device on your Wi-Fi.</div></li>
+
+  <section class="steps-land" id="steps">
+    <h2>Get going in 3 steps</h2>
+    <p class="lead">The bulbs only listen to devices on the same Wi-Fi, so this page uses a tiny free helper — the <b>bridge</b> — that runs on a computer at home. You set it up once.</p>
+    <ol class="lsteps">
+      <li class="lstep">
+        <div class="ln">1</div>
+        <div class="lbody">
+          <h3>Install the bridge on your computer</h3>
+          ${onPhone ? `<div class="phone-note">${ICON.wifi}<span>You're on a phone. Do this one step on a computer that's on the same Wi-Fi as your bulbs. After that, you'll control everything from your phone.</span></div>` : ''}
+          <div id="lstep1">${step1Html(dev)}</div>
+        </div>
+      </li>
+      <li class="lstep">
+        <div class="ln">2</div>
+        <div class="lbody"><h3>Name your home</h3><p>Type your name, your home's name, and your Wi-Fi. It's saved on your own computer, never in a cloud.</p></div>
+      </li>
+      <li class="lstep">
+        <div class="ln">3</div>
+        <div class="lbody"><h3>Find your bulbs and go</h3><p>One tap scans your Wi-Fi and lists every bulb. Name them, then control them here — or from your phone by scanning a QR code.</p></div>
+      </li>
     </ol>
+    <div class="steps-cta"><button class="primary lg" id="start3">I've installed it — continue</button></div>
   </section>
-  <footer class="site">Open source · <a href="${REPO}" target="_blank" rel="noopener">${REPO.replace('https://', '')}</a> · Works with bulbs already set up on your Wi-Fi.</footer>`;
+
+  <section class="features">
+    <div class="feature"><div class="ico">${ICON.wifi}</div><b>Finds your bulbs itself</b><p>Scans your Wi-Fi and lists every WiZ bulb, strip and plug. Name them once; they stay named.</p></div>
+    <div class="feature"><div class="ico">${ICON.palette}</div><b>Every colour and scene</b><p>A colour wheel, warm-to-cool whites, brightness, and all 32 built-in WiZ scenes.</p></div>
+    <div class="feature"><div class="ico">${ICON.lock}</div><b>Private by design</b><p>No account, no middle-man servers. Commands go straight to the bulbs — even with the internet down.</p></div>
+  </section>
+  <footer class="site">Free and open source · <a href="${REPO}" target="_blank" rel="noopener">${REPO.replace('https://', '')}</a> · Works with WiZ bulbs already on your Wi-Fi.</footer>`;
+
   const go = () => { ls.set('started', '1'); renderWizard(1); };
-  $('#start').addEventListener('click', go); $('#start2').addEventListener('click', go);
+  $('#start').addEventListener('click', go);
+  $('#start2').addEventListener('click', go);
+  $('#start3').addEventListener('click', go);
+  // Device switcher + download buttons (delegated, survives step-1 re-renders).
+  root.addEventListener('click', (e) => {
+    const swap = e.target.closest('[data-dev]');
+    if (swap) { dev = swap.dataset.dev; $('#lstep1').innerHTML = step1Html(dev); return; }
+    if (e.target.closest('[data-start]')) { ls.set('started', '1'); setTimeout(() => renderWizard(1), 500); } // let the download begin, then move on
+  });
 }
 
 /* ---------- wizard ---------- */

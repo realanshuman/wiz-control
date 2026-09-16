@@ -1,11 +1,19 @@
-# Builds the downloadable bridge for every platform and attaches it to a GitHub Release.
-# Runs when a tag like v1.2.3 is pushed (or manually from the Actions tab).
-name: Release
+# Builds the downloadable bridge for every platform.
+# - On every push to main: refreshes the rolling "latest" release, so the app's download
+#   links always serve the newest build (no manual tagging, no GitHub sign-in needed).
+# - On a version tag like v1.2.3: also publishes a permanent, versioned release.
+name: Build downloads
 
 on:
   push:
+    branches: [main]
     tags: ['v*']
   workflow_dispatch:
+
+# Don't pile up builds: a newer push cancels an in-flight one on the same ref.
+concurrency:
+  group: downloads-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: write
@@ -45,26 +53,52 @@ jobs:
             dist/WiZ-Bridge-Windows.exe
             dist/wiz-bridge-linux-x64.tar.gz
 
-  release:
-    name: Publish release
+  publish:
+    name: Publish downloads
     needs: [mac, win-linux]
-    if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
         with: { path: dist, merge-multiple: true }
       - run: ls -la dist
-      - uses: softprops/action-gh-release@v2
+
+      # Rolling "latest" release — always current, what the app links to.
+      - name: Update rolling "latest" release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          name: Latest build
+          prerelease: true
+          make_latest: false
+          files: dist/*
+          body: |
+            The always-current build from the `main` branch. The app's download buttons
+            point here, so this is what most people want.
+
+            | Platform | File |
+            | --- | --- |
+            | Mac · Apple silicon (M1–M4) | `WiZ-Bridge-macOS-AppleSilicon.dmg` |
+            | Mac · Intel | `WiZ-Bridge-macOS-Intel.dmg` |
+            | Windows 10/11 (64-bit) | `WiZ-Bridge-Windows.exe` |
+            | Linux (64-bit) | `wiz-bridge-linux-x64.tar.gz` |
+
+            On a Mac, open the DMG and drag **WiZ Bridge** into **Applications**, then open it from there. On Windows, choose **More info → Run anyway** if SmartScreen appears. The bridge has no window; it opens the app in your browser.
+
+      # Permanent, versioned release — only when a v* tag is pushed.
+      - name: Publish versioned release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
         with:
           files: dist/*
+          make_latest: true
           generate_release_notes: true
           body: |
             ## Downloads
             | Platform | File |
             | --- | --- |
-            | Mac with Apple silicon (M1–M4) | `WiZ-Bridge-macOS-AppleSilicon.dmg` |
-            | Mac with Intel | `WiZ-Bridge-macOS-Intel.dmg` |
+            | Mac · Apple silicon (M1–M4) | `WiZ-Bridge-macOS-AppleSilicon.dmg` |
+            | Mac · Intel | `WiZ-Bridge-macOS-Intel.dmg` |
             | Windows 10/11 (64-bit) | `WiZ-Bridge-Windows.exe` |
             | Linux (64-bit) | `wiz-bridge-linux-x64.tar.gz` |
 
-            On a Mac, open the DMG and drag **WiZ Bridge** into **Applications**, then open it from there (the first launch needs **System Settings → Privacy & Security → Open Anyway** once, because the app isn't notarized). On Windows, choose **More info → Run anyway** if SmartScreen appears. The bridge has no window; it opens the app in your browser.
+            On a Mac, open the DMG and drag **WiZ Bridge** into **Applications**, then open it from there (the first launch needs **System Settings → Privacy & Security → Open Anyway** once). On Windows, choose **More info → Run anyway** if SmartScreen appears.
