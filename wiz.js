@@ -2,7 +2,9 @@
 'use strict';
 // Command-line control for WiZ bulbs. Run without arguments for help.
 const wiz = require('./lib/wiz');
+const drivers = require('./lib/drivers');
 const store = require('./lib/store');
+const drv = (b) => drivers.get(b.driver) || drivers.get('wiz');
 
 const HELP = `WiZ bulb control (local network, no app needed)
 
@@ -33,6 +35,11 @@ for (let i = 0; i < argv.length; i++) {
 }
 const [cmd, ...args] = pos;
 
+const fmtState = (b, s) => {
+  s = s || {};
+  const what = s.mode === 'color' ? `colour ${s.hex}` : s.mode === 'white' ? `white ${s.temp}K` : s.mode === 'scene' ? `scene "${s.scene}"${s.speed ? ` speed ${s.speed}` : ''}` : s.mode === 'plug' ? '' : '';
+  return `${b.name.padEnd(16)} ${(b.ip || '').padEnd(15)} ${s.on ? 'ON ' : 'off'}  ${String(s.brightness ?? '').padStart(3)}${s.brightness != null ? '%' : ' '}  ${what}  (${s.rssi != null ? s.rssi + ' dBm' : b.brand || b.driver})`;
+};
 const fmt = (b, p) => {
   const s = wiz.describePilot(p);
   let what = s.mode === 'color' ? `colour ${s.hex}` : s.mode === 'white' ? `white ${s.temp}K` : s.mode === 'scene' ? `scene "${s.scene}"${s.speed ? ` speed ${s.speed}` : ''}` : '';
@@ -43,12 +50,12 @@ async function ensureBulbs() {
   if (store.list().length === 0) { console.log('No saved bulbs — scanning the network first…'); await doDiscover(); }
 }
 async function doDiscover() {
-  const found = await wiz.discover({ extraIps: store.list().map((b) => b.ip) });
+  const found = await drivers.get('wiz').discover({ extraIps: store.list().filter((b) => b.driver === 'wiz').map((b) => b.ip) });
   store.upsert(found);
   if (!found.length) { console.log('No WiZ bulbs answered. Check the bulb is powered on and on the same Wi-Fi as this computer.'); return; }
-  const saved = store.load().bulbs;
-  for (const d of found) { const b = saved[store.normMac(d.mac)]; console.log(`${b.name.padEnd(16)} ${d.ip.padEnd(15)} ${d.mac}  ${d.kind} (${d.moduleName}, fw ${d.fwVersion})  ${d.rssi} dBm`); }
-  console.log(`\n${found.length} bulb(s) saved to ${store.CONFIG_PATH}`);
+  const saved = store.load().devices;
+  for (const d of found) { const b = saved['wiz:' + d.id] || {}; console.log(`${(b.name || d.id).padEnd(16)} ${d.ip.padEnd(15)} ${d.id}  ${d.kind} (${d.moduleName || ''}, fw ${d.fwVersion || '?'})  ${d.state ? d.state.rssi : ''} dBm`); }
+  console.log(`\n${found.length} device(s) saved to ${store.CONFIG_PATH}`);
 }
 
 async function apply(target, params) {
@@ -56,7 +63,7 @@ async function apply(target, params) {
   const bulbs = store.resolve(target);
   const p = wiz.buildPilot(params);
   await Promise.all(bulbs.map(async (b) => {
-    try { await wiz.setPilot(b.ip, p); console.log(`${b.name}: ${JSON.stringify(p)}`); }
+    try { await drv(b).setState({ ...b, ...(b.tuya || {}) }, p); console.log(`${b.name}: ${JSON.stringify(p)}`); }
     catch (e) { console.error(`${b.name}: ${e.message}`); process.exitCode = 1; }
   }));
 }
@@ -69,10 +76,10 @@ async function main() {
     case 'list': case 'status': {
       await ensureBulbs();
       const bulbs = cmd === 'list' ? store.list() : store.resolve(args[0]);
-      const def = store.load().defaultBulb;
+      const def = store.load().defaultKey;
       await Promise.all(bulbs.map(async (b) => {
-        try { console.log((b.mac === def ? '* ' : '  ') + fmt(b, await wiz.getPilot(b.ip))); }
-        catch (e) { console.log(`  ${b.name.padEnd(16)} ${b.ip.padEnd(15)} offline (${e.message})`); }
+        try { const st = await drv(b).getState({ ...b, ...(b.tuya || {}) }); console.log((b.key === def ? '* ' : '  ') + fmtState(b, st)); }
+        catch (e) { console.log(`  ${b.name.padEnd(16)} ${(b.ip || '').padEnd(15)} offline (${e.message})`); }
       }));
       return;
     }
@@ -80,7 +87,7 @@ async function main() {
     case 'off': return apply(args[0], { state: false });
     case 'toggle': {
       await ensureBulbs();
-      for (const b of store.resolve(args[0])) { const p = await wiz.getPilot(b.ip); await wiz.setPilot(b.ip, { state: !p.state }); console.log(`${b.name}: ${p.state ? 'off' : 'on'}`); }
+      for (const b of store.resolve(args[0])) { const st = await drv(b).getState({ ...b, ...(b.tuya || {}) }); await drv(b).setState({ ...b, ...(b.tuya || {}) }, { state: !st.on }); console.log(`${b.name}: ${st.on ? 'off' : 'on'}`); }
       return;
     }
     case 'dim': case 'brightness': if (!args[0]) throw new Error('dim needs a value 10-100'); return apply(args[1], { dimming: args[0] });
@@ -92,9 +99,9 @@ async function main() {
       if (!id) { const hit = Object.entries(wiz.SCENES).find(([, n]) => n.toLowerCase().replace(/\s/g, '') === args[0].toLowerCase().replace(/\s/g, '')); if (!hit) throw new Error(`Unknown scene "${args[0]}"`); id = +hit[0]; }
       return apply(args[1], { sceneId: id, speed: flags.speed });
     }
-    case 'rename': { await ensureBulbs(); const [b] = store.resolve(args[0], { allowAll: false }); const name = args.slice(1).join(' '); if (!name) throw new Error('rename needs a new name'); store.update(b.mac, { name }); console.log(`${b.mac} → "${name}"`); return; }
-    case 'use': { await ensureBulbs(); const [b] = store.resolve(args[0], { allowAll: false }); store.setDefault(b.mac); console.log(`Default bulb: ${b.name} (${b.ip})`); return; }
-    case 'forget': { const [b] = store.resolve(args[0], { allowAll: false }); store.forget(b.mac); console.log(`Forgot ${b.name}`); return; }
+    case 'rename': { await ensureBulbs(); const [b] = store.resolve(args[0], { allowAll: false }); const name = args.slice(1).join(' '); if (!name) throw new Error('rename needs a new name'); store.update(b.key, { name }); console.log(`${b.name} → "${name}"`); return; }
+    case 'use': { await ensureBulbs(); const [b] = store.resolve(args[0], { allowAll: false }); store.setDefault(b.key); console.log(`Default: ${b.name} (${b.ip || b.key})`); return; }
+    case 'forget': { const [b] = store.resolve(args[0], { allowAll: false }); store.forget(b.key); console.log(`Forgot ${b.name}`); return; }
     case 'raw': {
       await ensureBulbs();
       const [b] = store.resolve(args[0], { allowAll: false });

@@ -88,7 +88,18 @@ const req = async (p, method = 'GET', body, headers = {}) => {
 
     // reset
     assert.strictEqual((await req('/api/reset', 'POST')).body.ok, true);
-    const saved = JSON.parse(fs.readFileSync(cfg, 'utf8')); assert.deepStrictEqual(saved.bulbs, {}); assert.strictEqual(saved.profile, null);
+    const saved = JSON.parse(fs.readFileSync(cfg, 'utf8')); assert.deepStrictEqual(saved.devices, {}); assert.strictEqual(saved.profile, null);
+
+    // brands + multi-brand endpoints
+    assert.strictEqual((await req('/api/brands')).body.length, 3);
+    assert.strictEqual((await req('/api/scan', 'POST', { driver: 'nope' })).status, 400);
+    assert.strictEqual((await req('/api/add', 'POST', { driver: 'tuya', id: 'x' })).status, 400); // missing key
+    assert.strictEqual((await req('/api/add', 'POST', { driver: 'tuya', id: 'x', key: 'short' })).status, 400); // bad key length
+    const added = await req('/api/add', 'POST', { driver: 'tuya', id: 'devtest', key: '0123456789abcdef', ip: '127.0.0.1', name: 'Test Plug', kind: 'plug' });
+    assert.strictEqual(added.status, 200); assert.strictEqual(added.body.key, 'tuya:devtest'); assert.strictEqual(added.body.kind, 'plug');
+    assert.strictEqual((await req('/api/devices')).body.length, 1);
+    assert.strictEqual((await req('/api/hue/pair', 'POST', {})).status, 400); // needs ip
+    await req('/api/reset', 'POST');
     console.log('api ok');
   } catch (e) { console.error('FAILED:', e.message, '\n--- server output ---\n' + out); process.exitCode = 1; }
   finally { srv.kill(); fs.rmSync(path.dirname(cfg), { recursive: true, force: true }); }

@@ -101,6 +101,8 @@ pre{margin:0;background:var(--code-bg);border:1px solid var(--line);border-radiu
 .chip.on .st{background:var(--ok);box-shadow:0 0 8px var(--ok)}
 .iconbtn{width:38px;height:38px;padding:0;display:inline-flex;align-items:center;justify-content:center;border-radius:11px;flex:none}
 .iconbtn svg{width:19px;height:19px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.topbar>button:not(.iconbtn),.empty button{display:inline-flex;align-items:center;gap:6px}
+.topbar>button:not(.iconbtn) svg,.empty button svg{width:17px;height:17px;stroke:currentColor;fill:none;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
 .umenu{position:relative;flex:none}
 .avatar{width:38px;height:38px;padding:0;border-radius:50%;background:linear-gradient(140deg,var(--accent),#c77a10);color:var(--accent-ink);font-weight:750;font-size:15px;border:0;display:inline-flex;align-items:center;justify-content:center;box-shadow:0 0 0 2px var(--bg),0 0 0 3.5px var(--line2),var(--shadow-sm)}
 .avatar:hover{filter:brightness(1.06)}
@@ -320,6 +322,55 @@ input[type=range].speed{--track:linear-gradient(90deg,var(--track-off),#7aa2ff)}
 #toast.ok{border-left-color:var(--ok)}
 #toast:not(.ok){border-left-color:var(--bad)}
 
+/* ---------- rooms ---------- */
+main.rooms{display:block;padding:24px;max-width:1440px;margin:0 auto}
+main.rooms .room{margin-bottom:26px}
+main.rooms .room-h{font-size:14px;font-weight:650;letter-spacing:.01em;color:var(--muted);margin:0 0 12px;padding:0 2px;text-transform:uppercase}
+main.rooms .room .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(360px,1fr));gap:20px}
+
+/* ---------- plug / switch tile ---------- */
+.card.plug .controls,.card.plug .expand,.card.plug .wheelwrap{display:none}
+.card.plug .orb{display:flex;align-items:center;justify-content:center}
+.card.plug .orb svg{width:26px;height:26px;stroke:rgba(255,255,255,.9);fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.card .orb svg{pointer-events:none}
+.badge.brand{text-transform:none}
+.card.needs-key .controls,.card.needs-key .hero-b .switch,.card.needs-key .expand{display:none}
+.needkey{display:flex;align-items:center;gap:10px;background:color-mix(in srgb,var(--accent) 9%,var(--panel));border:1px solid color-mix(in srgb,var(--accent) 26%,var(--line));border-radius:12px;padding:10px 12px;font-size:13px;color:var(--text)}
+.needkey svg{width:18px;height:18px;flex:none;stroke:var(--accent-2);fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.needkey .spacer{flex:1}
+.needkey button{margin-left:auto;padding:7px 12px;font-size:12.5px}
+.foot .setRoom svg{width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:1.7;vertical-align:-2px;margin-right:3px}
+
+/* ---------- add-device modal ---------- */
+.modal-ov{position:fixed;inset:0;z-index:60;background:rgba(8,10,14,.55);backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px);display:flex;align-items:center;justify-content:center;padding:20px;animation:fade .18s ease-out}
+.modal{width:100%;max-width:460px;max-height:calc(100vh - 40px);display:flex;flex-direction:column;background:var(--panel);border:1px solid var(--line2);border-radius:20px;box-shadow:var(--shadow-lg);overflow:hidden;animation:pop .2s cubic-bezier(.22,.61,.36,1)}
+.modal-h{display:flex;align-items:center;gap:8px;padding:14px 14px 12px;border-bottom:1px solid var(--line)}
+.modal-h .mtitle{flex:1;font-size:16px;letter-spacing:-.01em}
+.modal-h .mclose svg,.modal-h .mback svg{width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
+.modal-b{padding:18px 18px 20px;overflow-y:auto;-webkit-overflow-scrolling:touch}
+.msub{margin:0 0 16px;color:var(--muted);font-size:13.5px;line-height:1.55}
+.brandlist{display:flex;flex-direction:column;gap:10px}
+.brandbtn{display:flex;align-items:center;gap:14px;text-align:left;padding:14px 16px;border-radius:14px;border:1px solid var(--line2);background:var(--panel2);color:var(--text)}
+.brandbtn:hover{background:var(--panel3);transform:translateY(-1px);box-shadow:var(--shadow-sm)}
+.brandbtn .bi{width:40px;height:40px;flex:none;border-radius:11px;background:color-mix(in srgb,var(--accent) 13%,var(--panel));display:flex;align-items:center;justify-content:center;color:var(--accent-2)}
+.brandbtn .bi svg{width:20px;height:20px;stroke:currentColor;fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+.brandbtn .bt{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px}
+.brandbtn .bt b{font-size:15px;letter-spacing:-.01em}
+.brandbtn .bt span{font-size:12.5px;color:var(--muted);line-height:1.45}
+.brandbtn .ba{color:var(--faint)}
+.brandbtn .ba svg{width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:1.8;transform:rotate(-90deg)}
+.beta{font-style:normal;font-size:10.5px;font-weight:700;letter-spacing:.04em;color:var(--accent-ink);background:var(--accent);padding:1px 6px;border-radius:99px;vertical-align:1px;margin-left:6px}
+.mfound{display:flex;gap:14px;align-items:flex-start;margin-bottom:8px}
+.mfound b{font-size:15px}
+.seg{display:flex;gap:4px;background:var(--panel2);padding:4px;border-radius:11px}
+.seg .segb{flex:1;background:transparent;border-color:transparent;color:var(--muted);padding:8px;font-size:13.5px}
+.seg .segb.active{background:var(--panel);color:var(--text);box-shadow:var(--shadow-sm)}
+.sel{font:inherit;color:var(--text);background:var(--panel2);border:1px solid var(--line2);border-radius:var(--r-sm);padding:11px 12px;width:100%;-webkit-appearance:none;appearance:none}
+.hue-press{display:flex;gap:14px;align-items:center;background:var(--panel2);border:1px solid var(--line);border-radius:14px;padding:14px 16px;margin-bottom:16px}
+.hue-press p{margin:0;font-size:13.5px;color:var(--muted);line-height:1.5}
+.hue-press p b{color:var(--text)}
+.press-dot{width:34px;height:34px;flex:none;border-radius:50%;background:var(--accent);box-shadow:0 0 0 0 color-mix(in srgb,var(--accent) 55%,transparent);animation:pulse 1.6s infinite}
+
 /* =================================================================
    PHONES (≤ 640px)
    ================================================================= */
@@ -330,7 +381,7 @@ input[type=range].speed{--track:linear-gradient(90deg,var(--track-off),#7aa2ff)}
   button.lg{width:100%;padding:15px 20px}
   input[type=text],input[type=url]{font-size:16px;padding:12px 14px;min-height:var(--tap)}
   .topbar{padding:calc(10px + var(--sat)) calc(14px + var(--sar)) 10px calc(14px + var(--sal));gap:6px}
-  .topbar .hide-m{display:none}
+  .topbar .hide-m{display:none!important}
   .home-title b{font-size:15px}
   .home-title span{font-size:12px}
   .dropdown{min-width:230px;padding:8px}
@@ -371,6 +422,11 @@ input[type=range].speed{--track:linear-gradient(90deg,var(--track-off),#7aa2ff)}
   .phone .qr{width:184px;height:184px;margin:0 auto}
   .phone .url{justify-content:center}
   main.grid{padding:12px 12px calc(86px + var(--sab));grid-template-columns:1fr;gap:12px}
+  main.rooms{padding:12px 12px calc(86px + var(--sab))}
+  main.rooms .room .grid{grid-template-columns:1fr;gap:12px}
+  main.rooms .room{margin-bottom:18px}
+  .modal-ov{padding:0;align-items:flex-end}
+  .modal{max-width:none;max-height:92vh;border-radius:20px 20px 0 0;padding-bottom:var(--sab)}
   .card{padding:15px 15px 11px;gap:12px;border-radius:18px}
   .card .ip{display:none}
   .card input.name{font-size:17px;padding:6px 8px}

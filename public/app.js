@@ -42,7 +42,7 @@ const ls = { get: (k) => { try { return localStorage.getItem('wiz.' + k); } catc
 
 const state = {
   hosted: false, base: '', connected: false, info: null, // bridge
-  bulbs: [], bulbsLoaded: false, scenes: [], cards: new Map(), touched: {}, expanded: new Set(),
+  bulbs: [], bulbsLoaded: false, brands: null, scenes: [], cards: new Map(), touched: {}, expanded: new Set(),
   view: null, step: 1, timers: {},
 };
 
@@ -122,6 +122,10 @@ const ICON = {
   scan: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="2.5"/><path d="M7.8 16.2a6 6 0 0 1 0-8.4"/><path d="M16.2 7.8a6 6 0 0 1 0 8.4"/><path d="M4.9 19.1a10 10 0 0 1 0-14.2"/><path d="M19.1 4.9a10 10 0 0 1 0 14.2"/></svg>',
   chevron: '<svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg>',
   download: '<svg viewBox="0 0 24 24"><path d="M12 3v12"/><path d="m7 11 5 5 5-5"/><path d="M5 20h14"/></svg>',
+  plus: '<svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>',
+  tag: '<svg viewBox="0 0 24 24"><path d="M20.6 13.4 12 22l-9-9V4a1 1 0 0 1 1-1h9z"/><circle cx="7.5" cy="7.5" r="1.2"/></svg>',
+  plug: '<svg viewBox="0 0 24 24"><path d="M9 2v6M15 2v6M6 8h12v3a6 6 0 0 1-12 0z"/><path d="M12 17v5"/></svg>',
+  back2: '<svg viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></svg>',
   copy: '<svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>',
   bolt: '<svg viewBox="0 0 24 24"><path d="M13 2 3 14h9l-1 8 10-12h-9z"/></svg>',
   wifi: '<svg viewBox="0 0 24 24"><path d="M5 12.6a11 11 0 0 1 14 0"/><path d="M8.5 16a6 6 0 0 1 7 0"/><path d="M2 9a15.5 15.5 0 0 1 20 0"/><circle cx="12" cy="19.5" r=".8"/></svg>',
@@ -359,15 +363,15 @@ function wizBulbs() {
       </div>`;
       $('#next').textContent = 'Skip for now'; $('#next').disabled = false; return;
     }
-    $('#found').innerHTML = `<div class="found">${bulbs.map((b) => `<div class="b" data-mac="${b.mac}">
+    $('#found').innerHTML = `<div class="found">${bulbs.map((b) => `<div class="b" data-mac="${b.key || b.mac}">
         <span class="orb" style="background:${esc(summaryColor(b.summary))};--glow:${esc(summaryColor(b.summary))}88"></span>
         <input type="text" value="${esc(b.name)}" maxlength="40" title="Name this bulb" aria-label="Bulb name">
         <span class="spacer"></span><span class="meta">${esc(b.kind)}${b.online ? '' : ' · offline'}</span>
       </div>`).join('')}</div>
       <p class="small muted" style="margin:10px 2px 0">Found ${on.length} bulb${on.length === 1 ? '' : 's'}. Click a name to change it, e.g. "Bedroom" or "Desk lamp".</p>`;
     $$('#found input').forEach((inp) => {
-      const mac = inp.closest('.b').dataset.mac;
-      const save = async () => { const v = inp.value.trim(); if (!v) { inp.value = inp.defaultValue; return; } try { await api('/api/bulbs/' + mac, 'PATCH', { name: v }); inp.defaultValue = v; const sb = state.bulbs.find((x) => x.mac === mac); if (sb) sb.name = v; } catch (e) { toast(e.message); } };
+      const k = inp.closest('.b').dataset.mac;
+      const save = async () => { const v = inp.value.trim(); if (!v) { inp.value = inp.defaultValue; return; } try { await api('/api/devices/' + encodeURIComponent(k), 'PATCH', { name: v }); inp.defaultValue = v; const sb = state.bulbs.find((x) => x.key === k); if (sb) sb.name = v; } catch (e) { toast(e.message); } };
       inp.addEventListener('change', save); inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') inp.blur(); });
     });
     $('#next').textContent = 'Continue'; $('#next').disabled = false;
@@ -445,37 +449,42 @@ function renderDashboard() {
   root.innerHTML = topbar({ title: p.homeName || 'My home', sub, right: `
       <span class="chip on hide-m" id="count"><span class="st"></span><span>…</span></span>
       <button id="allOn" class="hide-m">All on</button><button id="allOff" class="hide-m">All off</button>
-      <button class="primary hide-m" id="discover">Discover</button>
+      <button id="discover" class="hide-m">Rescan</button>
+      <button class="primary hide-m" id="add">${ICON.plus}<span>Add device</span></button>
       <div class="umenu"><button class="avatar" id="ubtn" title="${esc(p.ownerName || 'Account')}" aria-haspopup="menu" aria-expanded="false">${esc((p.ownerName || 'W').trim().charAt(0).toUpperCase())}</button>
         <div class="dropdown" id="udrop" hidden role="menu">
           <div class="who"><b>${esc(p.ownerName || 'You')}</b><span>${esc(p.homeName || '')}</span></div>
+          <button role="menuitem" id="m-add2">${ICON.plus}<span>Add a device</span></button>
           <button role="menuitem" id="settings">${ICON.gear}<span>Settings</span></button>
           <button role="menuitem" id="logout">${ICON.logout}<span>Log out</span></button>
         </div></div>` }) +
     `<main class="grid" id="main"></main>
-    <nav class="bottombar" aria-label="Quick actions"><button id="m-off">${ICON.power}<span>All off</span></button><button id="m-on">${ICON.sun}<span>All on</span></button><button class="primary" id="m-disc">${ICON.scan}<span>Discover</span></button></nav>`;
+    <nav class="bottombar" aria-label="Quick actions"><button id="m-off">${ICON.power}<span>All off</span></button><button id="m-on">${ICON.sun}<span>All on</span></button><button class="primary" id="m-add">${ICON.plus}<span>Add</span></button></nav>`;
   state.cards.clear();
   const drop = $('#udrop'), ubtn = $('#ubtn');
   ubtn.addEventListener('click', (e) => { e.stopPropagation(); drop.hidden = !drop.hidden; ubtn.setAttribute('aria-expanded', String(!drop.hidden)); });
   if (!state.scenes.length) api('/api/scenes').then((sc) => { state.scenes = sc; state.cards.forEach((c) => c.remove()); state.cards.clear(); renderCards(); }).catch(() => {});
   $('#settings').addEventListener('click', renderSettings);
   $('#logout').addEventListener('click', logout);
+  $('#add').addEventListener('click', openAddDevice);
+  $('#m-add').addEventListener('click', openAddDevice);
+  $('#m-add2').addEventListener('click', openAddDevice);
   $('#discover').addEventListener('click', async (e) => {
     e.target.disabled = true; e.target.textContent = 'Scanning…';
-    try { state.bulbs = await api('/api/discover', 'POST'); state.bulbsLoaded = true; renderCards(); toast(plural(state.bulbs.filter((b) => b.online).length, 'bulb') + ' online', true); }
+    try { state.bulbs = await api('/api/discover', 'POST'); state.bulbsLoaded = true; renderCards(); toast(plural(state.bulbs.filter((b) => b.online).length, 'device') + ' online', true); }
     catch (err) { toast(err.message); }
-    finally { e.target.disabled = false; e.target.textContent = 'Discover'; }
+    finally { e.target.disabled = false; e.target.textContent = 'Rescan'; }
   });
-  const all = (on) => { state.bulbs.forEach((b) => (state.touched[b.mac] = Date.now())); state.cards.forEach((c) => { $('.power', c).checked = on; c.classList.toggle('off', !on); }); api('/api/all', 'POST', { state: on }).catch((e) => toast(e.message)); };
+  const all = (on) => { state.bulbs.forEach((b) => (state.touched[b.key] = Date.now())); state.cards.forEach((c) => { const pw = $('.power', c); if (pw) pw.checked = on; c.classList.toggle('off', !on); }); api('/api/all', 'POST', { state: on }).catch((e) => toast(e.message)); };
   $('#allOn').addEventListener('click', () => all(true)); $('#allOff').addEventListener('click', () => all(false));
-  $('#m-on').addEventListener('click', () => all(true)); $('#m-off').addEventListener('click', () => all(false)); $('#m-disc').addEventListener('click', () => $('#discover').click());
+  $('#m-on').addEventListener('click', () => all(true)); $('#m-off').addEventListener('click', () => all(false));
   renderCards();
   refresh();
   state.timers.poll = setInterval(refresh, 3000);
 }
 async function refresh() {
   try {
-    const bulbs = await api('/api/bulbs');
+    const bulbs = await api('/api/devices');
     if (state.view !== 'dashboard') return;
     state.bulbs = bulbs; state.bulbsLoaded = true; state.connected = true; renderCards();
   } catch (e) {
@@ -488,22 +497,35 @@ function renderCards() {
   const main = $('#main'); if (!main) return;
   if (!state.bulbsLoaded && !state.bulbs.length) { main.innerHTML = '<div class="empty" style="border:0"><span class="spinner"></span></div>'; return; }
   if (!state.bulbs.length) {
-    main.innerHTML = `<div class="empty"><b>No bulbs yet</b><span>Switch the bulbs on and press Discover. They must be on the same Wi-Fi as the bridge.</span><button class="primary" id="disc2">Discover bulbs</button></div>`;
-    $('#disc2').addEventListener('click', () => $('#discover').click()); state.cards.clear();
-    $('#count').lastElementChild.textContent = 'No bulbs'; return;
+    main.innerHTML = `<div class="empty"><b>No devices yet</b><span>Add your bulbs, plugs or switches. WiZ bulbs are found automatically; other brands take a moment to set up.</span><button class="primary" id="disc2">${ICON.plus}<span>Add a device</span></button></div>`;
+    $('#disc2').addEventListener('click', openAddDevice); state.cards.clear();
+    const c = $('#count'); if (c) c.lastElementChild.textContent = 'No devices'; return;
   }
-  if (main.querySelector('.empty')) main.innerHTML = '';
+  // Group by room. If no rooms are set, render one plain grid.
+  const rooms = [...new Set(state.bulbs.map((b) => b.room || ''))];
+  const grouped = rooms.length > 1 || (rooms.length === 1 && rooms[0]);
+  main.classList.toggle('grid', !grouped); main.classList.toggle('rooms', grouped);
+  main.textContent = '';
+  const order = rooms.filter(Boolean).sort().concat(rooms.includes('') ? [''] : []);
   const seen = new Set();
-  for (const b of state.bulbs) {
-    seen.add(b.mac);
-    let card = state.cards.get(b.mac);
-    if (!card) { card = makeCard(b); state.cards.set(b.mac, card); main.appendChild(card); }
-    applyState(card, b);
+  for (const room of order) {
+    let host = main;
+    if (grouped) {
+      const sec = document.createElement('section'); sec.className = 'room';
+      sec.innerHTML = `<h2 class="room-h">${room ? esc(room) : 'Other'}</h2><div class="grid"></div>`;
+      main.appendChild(sec); host = sec.querySelector('.grid');
+    }
+    for (const b of state.bulbs.filter((x) => (x.room || '') === room)) {
+      seen.add(b.key);
+      let card = state.cards.get(b.key);
+      if (!card) { card = makeCard(b); state.cards.set(b.key, card); }
+      host.appendChild(card); applyState(card, b);
+    }
   }
-  for (const [mac, card] of state.cards) if (!seen.has(mac)) { card.remove(); state.cards.delete(mac); }
+  for (const [key, card] of state.cards) if (!seen.has(key)) { card.remove(); state.cards.delete(key); }
   const on = state.bulbs.filter((b) => b.online).length;
-  const c = $('#count'); c.classList.toggle('on', on > 0); c.lastElementChild.textContent = `${on} of ${state.bulbs.length} connected`;
-  const p = (state.info && state.info.profile) || {}; const hs = $('.home-title span'); if (hs) hs.textContent = [p.ownerName, `${on} of ${state.bulbs.length} connected`].filter(Boolean).join(' · ');
+  const c = $('#count'); if (c) { c.classList.toggle('on', on > 0); c.lastElementChild.textContent = `${on} of ${state.bulbs.length} connected`; }
+  const pr = (state.info && state.info.profile) || {}; const hs = $('.home-title span'); if (hs) hs.textContent = [pr.ownerName, `${on} of ${state.bulbs.length} connected`].filter(Boolean).join(' · ');
 }
 
 /* ---------- bulb card ---------- */
@@ -520,25 +542,33 @@ function drawWheel(canvas) {
   }
   ctx.putImageData(img, 0, 0);
 }
-function touch(mac) { state.touched[mac] = Date.now(); }
-const nameOf = (mac) => (state.bulbs.find((b) => b.mac === mac) || {}).name || mac;
-async function setBulb(mac, params) { touch(mac); try { await api(`/api/bulbs/${mac}`, 'POST', params); } catch (e) { toast(`${nameOf(mac)}: ${e.message}`); } }
+function touch(key) { state.touched[key] = Date.now(); }
+const devUrl = (key) => '/api/devices/' + encodeURIComponent(key);
+const nameOf = (key) => (state.bulbs.find((b) => b.key === key) || {}).name || key;
+async function setBulb(key, params) { touch(key); try { await api(devUrl(key), 'POST', params); } catch (e) { toast(`${nameOf(key)}: ${e.message}`); } }
 function paint(card, color) { card.style.setProperty('--c', color); card.style.setProperty('--glow', color + '99'); }
+const BRAND_LABEL = { wiz: 'WiZ', tuya: 'Wipro', hue: 'Hue' };
 
 function makeCard(b) {
+  const isPlug = b.kind === 'plug' || b.kind === 'switch';
   const card = document.createElement('section');
-  card.className = 'card' + (b.color === false ? ' no-color' : '') + (b.tunableWhite === false ? ' no-white' : '') + (b.dimmable === false ? ' no-dim' : ''); card.dataset.mac = b.mac;
+  card.className = 'card'
+    + (b.color === false ? ' no-color' : '') + (b.tunableWhite === false ? ' no-white' : '')
+    + (b.dimmable === false ? ' no-dim' : '') + (b.effects === false ? ' no-effects' : '')
+    + (isPlug ? ' plug' : '');
+  card.dataset.key = b.key;
   card.innerHTML = `
     <div class="top">
-      <input class="name" type="text" value="" spellcheck="false" title="Click to rename" aria-label="Bulb name" maxlength="40">
-      <div class="meta"><span class="sig" data-l="0"><i></i><i></i><i></i><i></i></span><span class="ip"></span><span class="badge kind"></span></div>
+      <input class="name" type="text" value="" spellcheck="false" title="Click to rename" aria-label="Device name" maxlength="40">
+      <div class="meta"><span class="sig" data-l="0"><i></i><i></i><i></i><i></i></span><span class="ip"></span><span class="badge brand"></span></div>
     </div>
     <div class="hero-b">
-      <div class="orb"></div>
+      <div class="orb">${isPlug ? ICON.plug : ''}</div>
       <div class="state"><div class="mode">—</div><div class="sub"></div></div>
       <label class="switch"><input type="checkbox" class="power" aria-label="Power"><span></span></label>
       <button class="expand" aria-label="Show controls" aria-expanded="false">${ICON.chevron}</button>
     </div>
+    <div class="needkey" hidden>${ICON.lock}<span>Add this device's key to control it.</span><button class="primary addkey">Add key</button></div>
     <div class="controls">
       <div class="ctl"><label>Brightness</label><input type="range" class="bright" min="10" max="100" step="1" aria-label="Brightness"><output class="brightOut"></output></div>
       <div class="tabs" role="tablist"><button role="tab" data-tab="color" class="active" aria-selected="true">Colour</button><button role="tab" data-tab="white" aria-selected="false">White</button><button role="tab" data-tab="scenes" aria-selected="false">Scenes</button></div>
@@ -556,80 +586,202 @@ function makeCard(b) {
         <div class="ctl speedrow" hidden><label>Speed</label><input type="range" class="speed" min="10" max="200" step="5" aria-label="Scene speed"><output class="speedOut"></output></div>
       </div>
     </div>
-    <div class="foot"><button class="ghost setDefault">Make default</button><button class="ghost forget">Forget</button></div>`;
-  const mac = b.mac, q = (s) => $(s, card);
-  if (state.expanded.has(mac)) card.classList.add('open');
-  const toggleOpen = () => { const open = card.classList.toggle('open'); q('.expand').setAttribute('aria-expanded', String(open)); if (open) state.expanded.add(mac); else state.expanded.delete(mac); };
+    <div class="foot"><button class="ghost setRoom">${ICON.tag}<span>Room</span></button><span class="spacer"></span><button class="ghost setDefault">Default</button><button class="ghost forget">Forget</button></div>`;
+  const key = b.key, q = (s) => $(s, card);
+  if (state.expanded.has(key)) card.classList.add('open');
+  const toggleOpen = () => { const open = card.classList.toggle('open'); q('.expand').setAttribute('aria-expanded', String(open)); if (open) state.expanded.add(key); else state.expanded.delete(key); };
   q('.expand').addEventListener('click', toggleOpen);
-  q('.orb').addEventListener('click', () => { if (window.matchMedia('(max-width:640px)').matches) toggleOpen(); });
-  q('.state').addEventListener('click', () => { if (window.matchMedia('(max-width:640px)').matches) toggleOpen(); });
+  q('.orb').addEventListener('click', () => { if (!isPlug && window.matchMedia('(max-width:640px)').matches) toggleOpen(); });
+  q('.state').addEventListener('click', () => { if (!isPlug && window.matchMedia('(max-width:640px)').matches) toggleOpen(); });
 
   const name = q('.name');
-  const saveName = async () => { const v = name.value.trim(); if (!v || v === card._name) { name.value = card._name; return; } touch(mac); try { await api(`/api/bulbs/${mac}`, 'PATCH', { name: v }); card._name = v; const sb = state.bulbs.find((x) => x.mac === mac); if (sb) sb.name = v; toast(`Renamed to “${v}”`, true); } catch (e) { toast(e.message); } };
+  const saveName = async () => { const v = name.value.trim(); if (!v || v === card._name) { name.value = card._name; return; } touch(key); try { await api(devUrl(key), 'PATCH', { name: v }); card._name = v; const sb = state.bulbs.find((x) => x.key === key); if (sb) sb.name = v; toast(`Renamed to “${v}”`, true); } catch (e) { toast(e.message); } };
   name.addEventListener('change', saveName); name.addEventListener('keydown', (e) => { if (e.key === 'Enter') name.blur(); if (e.key === 'Escape') { name.value = card._name; name.blur(); } });
 
-  q('.power').addEventListener('change', (e) => { const on = e.target.checked; card.classList.toggle('off', !on); const b0 = state.bulbs.find((x) => x.mac === mac); if (b0 && b0.summary) { b0.summary.on = on; const [m, s2] = describeSummary(b0.summary); q('.mode').textContent = m; q('.sub').textContent = s2; } setBulb(mac, { state: on }); });
+  q('.addkey').addEventListener('click', () => openAddDevice('tuya'));
+  q('.power').addEventListener('change', (e) => { const on = e.target.checked; card.classList.toggle('off', !on); const b0 = state.bulbs.find((x) => x.key === key); if (b0 && b0.summary) { b0.summary.on = on; const [m, s2] = describeSummary(b0.summary); q('.mode').textContent = m; q('.sub').textContent = s2; } setBulb(key, { state: on }); });
 
-  const br = q('.bright'), brOut = q('.brightOut'); const sendBr = throttle((v) => setBulb(mac, { dimming: v }), 120);
-  br.addEventListener('input', () => { touch(mac); brOut.value = br.value + '%'; sendBr(+br.value); });
+  const br = q('.bright'), brOut = q('.brightOut'); const sendBr = throttle((v) => setBulb(key, { dimming: v }), 120);
+  br.addEventListener('input', () => { touch(key); brOut.value = br.value + '%'; sendBr(+br.value); });
 
   const selectTab = (t) => { $$('.tabs button', card).forEach((x) => { x.classList.toggle('active', x === t); x.setAttribute('aria-selected', String(x === t)); }); $$('.panel', card).forEach((p) => (p.hidden = p.dataset.panel !== t.dataset.tab)); };
   $$('.tabs button', card).forEach((t) => t.addEventListener('click', () => selectTab(t)));
-  if (b.color === false) { const first = b.tunableWhite === false ? q('[data-tab="scenes"]') : q('[data-tab="white"]'); if (first) selectTab(first); }
+  if (b.color === false) { const first = b.tunableWhite === false ? q('[data-tab="scenes"]') : q('[data-tab="white"]'); if (first && !first.hidden) selectTab(first); }
 
-  const canvas = q('canvas'), marker = q('.marker'), hexIn = q('.hex');
-  drawWheel(canvas);
-  const sendColor = throttle((r, g, bb) => setBulb(mac, { r, g, b: bb }), 120);
-  const placeMarker = (h, s, color) => { const a = h * Math.PI / 180; marker.style.left = (50 + Math.cos(a) * s * 50) + '%'; marker.style.top = (50 + Math.sin(a) * s * 50) + '%'; marker.style.background = color; };
-  const showColor = (r, g, bb, fromPoll) => { const [h, s] = rgb2hsv(r, g, bb); placeMarker(h, s, hex(r, g, bb)); if (!(fromPoll && document.activeElement === hexIn)) hexIn.value = hex(r, g, bb); paint(card, hex(r, g, bb)); };
-  const pick = (e) => { const rect = canvas.getBoundingClientRect(); const R = rect.width / 2; const dx = e.clientX - rect.left - R, dy = e.clientY - rect.top - R; const s = Math.min(1, Math.hypot(dx, dy) / R); const h = (Math.atan2(dy, dx) * 180 / Math.PI + 360) % 360; const [r, g, bb] = hsv2rgb(h, s, 1); touch(mac); showColor(r, g, bb); q('.mode').textContent = 'Colour'; q('.sub').textContent = hex(r, g, bb); q('.power').checked = true; card.classList.remove('off'); sendColor(r, g, bb); };
-  let dragging = false;
-  canvas.addEventListener('pointerdown', (e) => { dragging = true; canvas.setPointerCapture(e.pointerId); pick(e); });
-  canvas.addEventListener('pointermove', (e) => { if (dragging) pick(e); });
-  canvas.addEventListener('pointerup', () => (dragging = false)); canvas.addEventListener('pointercancel', () => (dragging = false));
-  hexIn.addEventListener('keydown', (e) => { if (e.key === 'Enter') hexIn.blur(); });
-  hexIn.addEventListener('change', () => { const m = hexIn.value.trim().replace('#', ''); if (!/^[0-9a-f]{6}$/i.test(m)) { toast('Use a 6-digit hex colour like #ff8800'); return; } const r = parseInt(m.slice(0, 2), 16), g = parseInt(m.slice(2, 4), 16), bb = parseInt(m.slice(4, 6), 16); touch(mac); showColor(r, g, bb); q('.mode').textContent = 'Colour'; q('.sub').textContent = hex(r, g, bb); setBulb(mac, { r, g, b: bb }); });
-  $$('.swatches button', card).forEach((sw) => sw.addEventListener('click', () => { const m = sw.dataset.c.slice(1); const r = parseInt(m.slice(0, 2), 16), g = parseInt(m.slice(2, 4), 16), bb = parseInt(m.slice(4, 6), 16); touch(mac); showColor(r, g, bb); q('.mode').textContent = 'Colour'; q('.sub').textContent = sw.dataset.c; q('.power').checked = true; card.classList.remove('off'); setBulb(mac, { r, g, b: bb }); }));
-  card._showColor = showColor;
+  if (!isPlug) {
+    const canvas = q('canvas'), marker = q('.marker'), hexIn = q('.hex');
+    drawWheel(canvas);
+    const sendColor = throttle((r, g, bb) => setBulb(key, { r, g, b: bb }), 120);
+    const placeMarker = (h, s, color) => { const a = h * Math.PI / 180; marker.style.left = (50 + Math.cos(a) * s * 50) + '%'; marker.style.top = (50 + Math.sin(a) * s * 50) + '%'; marker.style.background = color; };
+    const showColor = (r, g, bb, fromPoll) => { const [h, s] = rgb2hsv(r, g, bb); placeMarker(h, s, hex(r, g, bb)); if (!(fromPoll && document.activeElement === hexIn)) hexIn.value = hex(r, g, bb); paint(card, hex(r, g, bb)); };
+    const pick = (e) => { const rect = canvas.getBoundingClientRect(); const R = rect.width / 2; const dx = e.clientX - rect.left - R, dy = e.clientY - rect.top - R; const s = Math.min(1, Math.hypot(dx, dy) / R); const h = (Math.atan2(dy, dx) * 180 / Math.PI + 360) % 360; const [r, g, bb] = hsv2rgb(h, s, 1); touch(key); showColor(r, g, bb); q('.mode').textContent = 'Colour'; q('.sub').textContent = hex(r, g, bb); q('.power').checked = true; card.classList.remove('off'); sendColor(r, g, bb); };
+    let dragging = false;
+    canvas.addEventListener('pointerdown', (e) => { dragging = true; canvas.setPointerCapture(e.pointerId); pick(e); });
+    canvas.addEventListener('pointermove', (e) => { if (dragging) pick(e); });
+    canvas.addEventListener('pointerup', () => (dragging = false)); canvas.addEventListener('pointercancel', () => (dragging = false));
+    hexIn.addEventListener('keydown', (e) => { if (e.key === 'Enter') hexIn.blur(); });
+    hexIn.addEventListener('change', () => { const m = hexIn.value.trim().replace('#', ''); if (!/^[0-9a-f]{6}$/i.test(m)) { toast('Use a 6-digit hex colour like #ff8800'); return; } const r = parseInt(m.slice(0, 2), 16), g = parseInt(m.slice(2, 4), 16), bb = parseInt(m.slice(4, 6), 16); touch(key); showColor(r, g, bb); q('.mode').textContent = 'Colour'; q('.sub').textContent = hex(r, g, bb); setBulb(key, { r, g, b: bb }); });
+    $$('.swatches button', card).forEach((sw) => sw.addEventListener('click', () => { const m = sw.dataset.c.slice(1); const r = parseInt(m.slice(0, 2), 16), g = parseInt(m.slice(2, 4), 16), bb = parseInt(m.slice(4, 6), 16); touch(key); showColor(r, g, bb); q('.mode').textContent = 'Colour'; q('.sub').textContent = sw.dataset.c; q('.power').checked = true; card.classList.remove('off'); setBulb(key, { r, g, b: bb }); }));
+    card._showColor = showColor;
 
-  const tp = q('.temp'), tpOut = q('.tempOut'); const sendTemp = throttle((v) => setBulb(mac, { temp: v }), 120);
-  tp.addEventListener('input', () => { touch(mac); tpOut.value = tp.value + 'K'; $$('.presets button', card).forEach((x) => x.classList.toggle('active', Math.abs(+x.dataset.k - +tp.value) <= 25)); paint(card, hex(...kelvin2rgb(+tp.value))); q('.mode').textContent = 'White'; q('.sub').textContent = tp.value + 'K'; q('.power').checked = true; card.classList.remove('off'); $$('.scenes button', card).forEach((x) => x.classList.remove('active')); sendTemp(+tp.value); });
-  $$('.presets button', card).forEach((p) => p.addEventListener('click', () => { tp.value = p.dataset.k; tp.dispatchEvent(new Event('input')); $$('.presets button', card).forEach((x) => x.classList.toggle('active', x === p)); }));
+    const tp = q('.temp'), tpOut = q('.tempOut'); const sendTemp = throttle((v) => setBulb(key, { temp: v }), 120);
+    tp.addEventListener('input', () => { touch(key); tpOut.value = tp.value + 'K'; $$('.presets button', card).forEach((x) => x.classList.toggle('active', Math.abs(+x.dataset.k - +tp.value) <= 25)); paint(card, hex(...kelvin2rgb(+tp.value))); q('.mode').textContent = 'White'; q('.sub').textContent = tp.value + 'K'; q('.power').checked = true; card.classList.remove('off'); $$('.scenes button', card).forEach((x) => x.classList.remove('active')); sendTemp(+tp.value); });
+    $$('.presets button', card).forEach((p) => p.addEventListener('click', () => { tp.value = p.dataset.k; tp.dispatchEvent(new Event('input')); $$('.presets button', card).forEach((x) => x.classList.toggle('active', x === p)); }));
 
-  const speedRow = q('.speedrow'), sp = q('.speed'), spOut = q('.speedOut');
-  $$('.scenes button', card).forEach((s) => s.addEventListener('click', () => {
-    const id = +s.dataset.s, sc = state.scenes.find((x) => x.id === id);
-    $$('.scenes button', card).forEach((x) => x.classList.toggle('active', x === s));
-    speedRow.hidden = !sc.dynamic; paint(card, SCENE_COLORS[id] || '#ffffff');
-    q('.mode').textContent = 'Scene'; q('.sub').textContent = sc.name; q('.power').checked = true; card.classList.remove('off');
-    touch(mac); setBulb(mac, { sceneId: id, ...(sc.dynamic ? { speed: +sp.value || 100 } : {}) });
-  }));
-  const sendSpeed = throttle((v) => { const act = card.querySelector('.scenes button.active'); setBulb(mac, act ? { sceneId: +act.dataset.s, speed: v } : { speed: v }); }, 150);
-  sp.addEventListener('input', () => { touch(mac); spOut.value = sp.value; sendSpeed(+sp.value); });
+    const speedRow = q('.speedrow'), sp = q('.speed'), spOut = q('.speedOut');
+    $$('.scenes button', card).forEach((s) => s.addEventListener('click', () => {
+      const id = +s.dataset.s, sc = state.scenes.find((x) => x.id === id);
+      $$('.scenes button', card).forEach((x) => x.classList.toggle('active', x === s));
+      speedRow.hidden = !sc.dynamic; paint(card, SCENE_COLORS[id] || '#ffffff');
+      q('.mode').textContent = 'Scene'; q('.sub').textContent = sc.name; q('.power').checked = true; card.classList.remove('off');
+      touch(key); setBulb(key, { sceneId: id, ...(sc.dynamic ? { speed: +sp.value || 100 } : {}) });
+    }));
+    const sendSpeed = throttle((v) => { const act = card.querySelector('.scenes button.active'); setBulb(key, act ? { sceneId: +act.dataset.s, speed: v } : { speed: v }); }, 150);
+    sp.addEventListener('input', () => { touch(key); spOut.value = sp.value; sendSpeed(+sp.value); });
+  }
 
-  q('.setDefault').addEventListener('click', async () => { try { await api(`/api/bulbs/${mac}`, 'PATCH', { default: true }); toast(`${card._name} is now the default bulb for the command line`, true); } catch (e) { toast(e.message); } });
-  q('.forget').addEventListener('click', async () => { if (!confirm(`Forget ${card._name}? Discover will find it again.`)) return; try { await api(`/api/bulbs/${mac}`, 'DELETE'); state.bulbs = state.bulbs.filter((x) => x.mac !== mac); renderCards(); } catch (e) { toast(e.message); } });
+  q('.setRoom').addEventListener('click', async () => {
+    const cur = (state.bulbs.find((x) => x.key === key) || {}).room || '';
+    const room = prompt('Group this device under a room (leave blank for none):', cur);
+    if (room === null) return;
+    try { await api(devUrl(key), 'PATCH', { room: room.trim() }); const sb = state.bulbs.find((x) => x.key === key); if (sb) sb.room = room.trim(); renderCards(); } catch (e) { toast(e.message); }
+  });
+  q('.setDefault').addEventListener('click', async () => { try { await api(devUrl(key), 'PATCH', { default: true }); toast(`${card._name} is now the default for the command line`, true); } catch (e) { toast(e.message); } });
+  q('.forget').addEventListener('click', async () => { if (!confirm(`Forget ${card._name}?`)) return; try { await api(devUrl(key), 'DELETE'); state.bulbs = state.bulbs.filter((x) => x.key !== key); renderCards(); } catch (e) { toast(e.message); } });
   return card;
 }
 function applyState(card, b) {
   const q = (s) => $(s, card);
-  const fresh = !state.touched[b.mac] || Date.now() - state.touched[b.mac] > TOUCH_HOLD;
+  const fresh = !state.touched[b.key] || Date.now() - state.touched[b.key] > TOUCH_HOLD;
   const name = q('.name'); if (document.activeElement !== name && fresh) name.value = b.name; if (fresh) card._name = b.name;
-  q('.ip').textContent = b.ip; q('.kind').textContent = b.online ? b.kind : 'offline'; q('.kind').classList.toggle('off', !b.online);
+  q('.ip').textContent = b.ip || ''; q('.brand').textContent = b.needsKey ? 'needs key' : (BRAND_LABEL[b.driver] || b.brand || ''); q('.brand').classList.toggle('off', !!b.needsKey);
+  card.classList.toggle('needs-key', !!b.needsKey); q('.needkey').hidden = !b.needsKey;
   const rssi = b.rssi ?? -100; q('.sig').dataset.l = !b.online ? 0 : rssi > -55 ? 4 : rssi > -65 ? 3 : rssi > -75 ? 2 : 1; q('.sig').title = b.online ? `${rssi} dBm` : 'offline';
   card.classList.toggle('offline', !b.online);
   if (!fresh || !b.summary) return;
   const s = b.summary;
   q('.power').checked = s.on; card.classList.toggle('off', !s.on);
+  const [mode, sub] = describeSummary(s); q('.mode').textContent = mode; q('.sub').textContent = sub;
+  if (card.classList.contains('plug')) { paint(card, s.on ? '#37d399' : '#2a2f3a'); return; }
   q('.bright').value = s.brightness ?? 100; q('.brightOut').value = (s.brightness ?? 100) + '%';
   $$('.scenes button', card).forEach((x) => x.classList.toggle('active', s.mode === 'scene' && +x.dataset.s === s.sceneId));
-  const [mode, sub] = describeSummary(s); q('.mode').textContent = mode; q('.sub').textContent = sub;
   $$('.presets button', card).forEach((x) => x.classList.toggle('active', s.mode === 'white' && Math.abs(+x.dataset.k - s.temp) <= 25));
-  if (s.mode === 'color') { card._showColor(s.r, s.g, s.b, true); q('.speedrow').hidden = true; }
+  if (s.mode === 'color' && card._showColor) { card._showColor(s.r, s.g, s.b, true); q('.speedrow').hidden = true; }
   else if (s.mode === 'white') { q('.temp').value = s.temp; q('.tempOut').value = s.temp + 'K'; paint(card, hex(...kelvin2rgb(s.temp))); q('.speedrow').hidden = true; }
   else if (s.mode === 'scene') { const sc = state.scenes.find((x) => x.id === s.sceneId); paint(card, SCENE_COLORS[s.sceneId] || '#fff'); q('.speedrow').hidden = !(sc && sc.dynamic); if (s.speed) { q('.speed').value = s.speed; q('.speedOut').value = s.speed; } }
   if (!q('.tempOut').value) q('.tempOut').value = q('.temp').value + 'K';
   if (!q('.speedOut').value) q('.speedOut').value = q('.speed').value;
+}
+
+/* ---------- add a device (brand picker) ---------- */
+const XICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg>';
+const BRAND_ICON = { wiz: ICON.bolt, tuya: ICON.plug, hue: ICON.palette };
+function closeAddDevice() { const o = $('#addov'); if (o) o.remove(); }
+function openAddDevice(preselect) {
+  closeAddDevice();
+  const ov = document.createElement('div'); ov.className = 'modal-ov'; ov.id = 'addov';
+  ov.innerHTML = `<div class="modal" role="dialog" aria-modal="true" aria-label="Add a device">
+    <div class="modal-h"><button class="iconbtn ghost mback" hidden aria-label="Back">${ICON.back2}</button><b class="mtitle">Add a device</b><button class="iconbtn ghost mclose" aria-label="Close">${XICON}</button></div>
+    <div class="modal-b" id="mbody"></div></div>`;
+  document.body.appendChild(ov);
+  ov.addEventListener('click', (e) => { if (e.target === ov) closeAddDevice(); });
+  document.addEventListener('keydown', function esc(e) { if (e.key === 'Escape') { closeAddDevice(); document.removeEventListener('keydown', esc); } });
+  $('.mclose', ov).addEventListener('click', closeAddDevice);
+  const body = $('#mbody', ov), titleEl = $('.mtitle', ov), backBtn = $('.mback', ov);
+  const setTitle = (t) => (titleEl.textContent = t);
+  const setBack = (fn) => { backBtn.hidden = !fn; backBtn.onclick = fn || null; };
+  const done = (msg) => { if (msg) toast(msg, true); closeAddDevice(); state.bulbs = []; state.cards.clear(); refresh(); };
+
+  function pickBrand() {
+    setTitle('Add a device'); setBack(null);
+    body.innerHTML = `<p class="msub">Pick your brand. WiZ is found automatically; other brands take a short one-time setup.</p>
+      <div class="brandlist">
+        ${['wiz', 'tuya', 'hue'].map((id) => { const brand = (state.brands || []).find((x) => x.id === id) || {}; return `<button class="brandbtn" data-b="${id}"><span class="bi">${BRAND_ICON[id] || ''}</span><span class="bt"><b>${esc(brand.label || id)}${brand.beta ? ' <i class="beta">Beta</i>' : ''}</b><span>${esc(brand.blurb || '')}</span></span><span class="ba">${ICON.chevron}</span></button>`; }).join('')}
+      </div>`;
+    $$('.brandbtn', body).forEach((btn) => btn.addEventListener('click', () => ({ wiz: addWiz, tuya: addTuya, hue: addHue }[btn.dataset.b]())));
+  }
+
+  async function addWiz() {
+    setTitle('Philips WiZ'); setBack(pickBrand);
+    body.innerHTML = `<div class="scan"><span class="spinner"></span><span>Scanning your Wi-Fi for WiZ devices…</span></div>`;
+    try {
+      const list = await api('/api/discover', 'POST'); const wiz = list.filter((d) => d.driver === 'wiz');
+      body.innerHTML = `<div class="mfound"><div class="check">${ICON.check}</div><div><b>${plural(wiz.length, 'WiZ device')} found</b><p class="msub" style="margin:2px 0 0">They're on your dashboard now. Make sure a bulb is powered on if it's missing, then scan again.</p></div></div>
+        <div class="actions"><button class="ghost left" id="again">Scan again</button><button class="primary" id="ok">Done</button></div>`;
+      $('#again', body).addEventListener('click', addWiz); $('#ok', body).addEventListener('click', () => done());
+    } catch (e) { body.innerHTML = `<div class="tips"><span>${esc(e.message)}</span></div><div class="actions"><button class="primary" id="again">Try again</button></div>`; $('#again', body).addEventListener('click', addWiz); }
+  }
+
+  function tuyaForm(prefill = {}) {
+    setTitle('Wipro / Tuya'); setBack(addTuya);
+    body.innerHTML = `<div class="field"><label>Device name</label><input type="text" id="t-name" placeholder="e.g. Bedroom bulb" value="${esc(prefill.name || '')}" maxlength="40"></div>
+      <div class="field"><label>Type</label><div class="seg"><button class="segb active" data-k="bulb">Bulb</button><button class="segb" data-k="plug">Plug / switch</button></div></div>
+      <div class="field"><label>Local key</label><input type="text" id="t-key" placeholder="16-character key" value="${esc(prefill.key || '')}" maxlength="16" autocapitalize="off" spellcheck="false"></div>
+      <div class="field"><label>Device ID</label><input type="text" id="t-id" placeholder="Tuya device id" value="${esc(prefill.id || '')}" autocapitalize="off" spellcheck="false"></div>
+      <div class="row"><div class="field" style="flex:1"><label>IP address</label><input type="text" id="t-ip" placeholder="192.168.1.x" value="${esc(prefill.ip || '')}" autocapitalize="off" spellcheck="false"></div>
+        <div class="field" style="width:120px"><label>Version</label><select id="t-ver" class="sel"><option ${prefill.version === '3.3' ? 'selected' : ''}>3.3</option><option ${prefill.version === '3.4' ? 'selected' : ''}>3.4</option><option ${prefill.version === '3.5' ? 'selected' : ''}>3.5</option></select></div></div>
+      <details><summary>Where do I find the key?</summary><div class="body">
+        <span>Tuya devices need a one-time <b>local key</b>. Get it free:</span>
+        <span>1. Sign up at <a href="https://iot.tuya.com" target="_blank" rel="noopener">iot.tuya.com</a> and create a Cloud project.</span>
+        <span>2. Under <b>Devices → Link Tuya App Account</b>, scan the QR code with your Wipro/Smart Life app.</span>
+        <span>3. Open your device there and copy its <b>Device ID</b> and <b>Local Key</b>.</span>
+        <span class="note">The key stays on your bridge. This is the same method Home Assistant uses.</span>
+      </div></details>
+      <div class="actions"><button class="ghost left" id="back2">Back</button><button class="primary" id="save">Add device</button></div>`;
+    let kind = prefill.kind || 'bulb';
+    $$('.segb', body).forEach((sb) => sb.addEventListener('click', () => { kind = sb.dataset.k; $$('.segb', body).forEach((x) => x.classList.toggle('active', x === sb)); }));
+    $('#back2', body).addEventListener('click', addTuya);
+    $('#save', body).addEventListener('click', async (e) => {
+      const payload = { driver: 'tuya', name: $('#t-name', body).value.trim(), kind, key: $('#t-key', body).value.trim(), id: $('#t-id', body).value.trim(), ip: $('#t-ip', body).value.trim(), version: $('#t-ver', body).value };
+      if (!payload.id || !payload.key) { toast('Device ID and key are required'); return; }
+      e.target.disabled = true; e.target.textContent = 'Adding…';
+      try { const dev = await api('/api/add', 'POST', payload); done(dev.online ? `Added ${dev.name}` : `Added ${dev.name} (couldn't reach it yet — check the IP and key)`); }
+      catch (err) { toast(err.message); e.target.disabled = false; e.target.textContent = 'Add device'; }
+    });
+  }
+
+  async function addTuya() {
+    setTitle('Wipro / Tuya'); setBack(pickBrand);
+    body.innerHTML = `<p class="msub">Looking for Tuya devices on your Wi-Fi…</p><div class="scan"><span class="spinner"></span><span>Scanning…</span></div>`;
+    let found = [];
+    try { const r = await api('/api/scan', 'POST', { driver: 'tuya' }); found = r.found || []; } catch (_) {}
+    const list = found.length ? `<div class="found">${found.map((d) => `<div class="b"><span class="orb" style="background:var(--panel3)">${ICON.plug}</span><div style="flex:1;min-width:0"><b style="font-size:14px">Tuya device</b><div class="meta" style="display:block">${esc(d.ip)} · v${esc(d.version)}${d.saved ? ' · added' : ''}</div></div><button class="use" data-id="${esc(d.id)}" data-ip="${esc(d.ip)}" data-ver="${esc(d.version)}" ${d.saved ? 'disabled' : ''}>${d.saved ? 'Added' : 'Add'}</button></div>`).join('')}</div>`
+      : `<div class="tips"><span>No Tuya devices answered. Make sure the bulb is powered on and on this Wi-Fi. You can also add it by hand below.</span></div>`;
+    body.innerHTML = `<p class="msub">Found devices need their one-time key. Pick one, or enter details manually.</p>${list}
+      <div class="actions"><button class="ghost left" id="rescan">Scan again</button><button class="primary" id="manual">Enter manually</button></div>`;
+    $('#rescan', body).addEventListener('click', addTuya);
+    $('#manual', body).addEventListener('click', () => tuyaForm());
+    $$('.use', body).forEach((u) => u.addEventListener('click', () => tuyaForm({ id: u.dataset.id, ip: u.dataset.ip, version: u.dataset.ver })));
+  }
+
+  async function addHue() {
+    setTitle('Philips Hue'); setBack(pickBrand);
+    body.innerHTML = `<p class="msub">Looking for your Hue bridge…</p><div class="scan"><span class="spinner"></span><span>Scanning…</span></div>`;
+    let bridges = [];
+    try { const r = await api('/api/scan', 'POST', { driver: 'hue' }); bridges = r.bridges || []; } catch (_) {}
+    const pairStep = (ip) => {
+      setBack(addHue);
+      body.innerHTML = `<div class="hue-press"><div class="press-dot"></div><p><b>Press the round button</b> on top of your Hue bridge, then tap Pair within 30 seconds.</p></div>
+        <div class="field"><label>Bridge address</label><input type="text" id="h-ip" value="${esc(ip || '')}" placeholder="192.168.1.x" autocapitalize="off" spellcheck="false"></div>
+        <div class="actions"><button class="ghost left" id="back3">Back</button><button class="primary" id="pair">Pair</button></div>`;
+      $('#back3', body).addEventListener('click', addHue);
+      $('#pair', body).addEventListener('click', async (e) => {
+        const bip = $('#h-ip', body).value.trim(); if (!bip) { toast('Enter the bridge address'); return; }
+        e.target.disabled = true; e.target.textContent = 'Pairing…';
+        try { const r = await api('/api/hue/pair', 'POST', { ip: bip }); done(`Paired — added ${plural(r.added || 0, 'light')}`); }
+        catch (err) { toast(err.message); e.target.disabled = false; e.target.textContent = 'Pair'; }
+      });
+    };
+    body.innerHTML = `<p class="msub">${bridges.length ? 'Found a bridge. Continue to pair.' : "Couldn't find a bridge automatically — enter its address."}</p>
+      ${bridges.length ? `<div class="found">${bridges.map((ip) => `<div class="b"><span class="orb" style="background:var(--panel3)">${ICON.palette}</span><div style="flex:1"><b style="font-size:14px">Hue bridge</b><div class="meta" style="display:block">${esc(ip)}</div></div><button class="use" data-ip="${esc(ip)}">Pair</button></div>`).join('')}</div>` : ''}
+      <div class="actions"><button class="ghost left" id="rescan">Scan again</button><button class="primary" id="manual">Enter address</button></div>`;
+    $('#rescan', body).addEventListener('click', addHue);
+    $('#manual', body).addEventListener('click', () => pairStep(bridges[0] || ''));
+    $$('.use', body).forEach((u) => u.addEventListener('click', () => pairStep(u.dataset.ip)));
+  }
+
+  if (!state.brands) api('/api/brands').then((b) => { state.brands = b; if (state.view === 'dashboard' && $('#addov')) { if (preselect === 'tuya') addTuya(); else pickBrand(); } }).catch(() => {});
+  if (preselect === 'tuya') addTuya(); else pickBrand();
 }
 
 /* ---------- settings ---------- */

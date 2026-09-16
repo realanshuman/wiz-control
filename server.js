@@ -13,6 +13,7 @@ const fs = require('fs');
 const path = require('path');
 const { execFile } = require('child_process');
 const wiz = require('./lib/wiz');
+const drivers = require('./lib/drivers');
 const store = require('./lib/store');
 const net = require('./lib/net');
 
@@ -117,51 +118,72 @@ function serveStatic(res, file) {
   });
 }
 
-function view(b, pilot, online) {
-  return { ...b, ...wiz.capabilities(b.moduleName), online, rssi: pilot ? pilot.rssi : undefined, pilot: pilot || null, summary: pilot ? wiz.describePilot(pilot) : null };
+// A device as the web app sees it: the saved record + live capabilities + current state.
+function view(dev, state, online) {
+  const drv = drivers.get(dev.driver);
+  const caps = (drv && drv.caps && drv.caps(dev)) || { color: false, tunableWhite: false, dimmable: false, effects: false, kind: dev.kind || 'bulb' };
+  return {
+    ...dev, ...caps, key: dev.key, mac: dev.driver === 'wiz' ? dev.id : undefined, brand: drv && drv.brand,
+    online, needsKey: dev.driver === 'tuya' && !dev.tuya, rssi: state ? state.rssi : undefined,
+    summary: state || null,
+  };
 }
-// One network sweep at a time; concurrent callers share it.
-let discovering = null, lastDiscover = 0;
-function discoverOnce(opts) {
-  if (!discovering) { discovering = wiz.discover({ extraIps: store.list().map((b) => b.ip), ...opts }).then((found) => { store.upsert(found); lastDiscover = Date.now(); return found; }).finally(() => { discovering = null; }); }
+const withTimeout = (p, ms) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error('No reply (slow)')), ms))]);
+async function withState(dev) {
+  const drv = drivers.get(dev.driver);
+  if (!drv || (dev.driver === 'tuya' && !dev.tuya)) return view(dev, dev.state || null, false);
+  // Cap per-device fetch so one slow/unreachable device can't stall the whole dashboard.
+  try { const st = await withTimeout(drv.getState({ ...dev, ...(dev.tuya || {}) }), 2500); if (st) store.update(dev.key, { state: st }); return view(dev, st, true); }
+  catch (_) { return view(dev, dev.state || null, false); }
+}
+
+// Run every brand's discovery. WiZ auto-adds (keyless); Hue relists saved bridges' lights;
+// Tuya devices without a saved key are returned for the Add flow but not saved to the dashboard.
+let discovering = null;
+function discoverOnce() {
+  if (discovering) return discovering;
+  discovering = (async () => {
+    const wizFound = await drivers.get('wiz').discover({ extraIps: store.list().filter((d) => d.driver === 'wiz').map((d) => d.ip) }).catch(() => []);
+    const hueFound = await drivers.get('hue').discover({ bridges: store.hueBridges() }).catch(() => []);
+    const savedTuya = store.list().filter((d) => d.driver === 'tuya' && d.tuya);
+    store.upsert([...wizFound, ...hueFound]);
+    return { wizFound, hueFound, savedTuya };
+  })().finally(() => { discovering = null; });
   return discovering;
 }
-async function withState(b) {
-  try { const p = await wiz.send(b.ip, 'getPilot', {}, { retries: 1, timeoutMs: 1000 }); return view(b, p, true); }
-  catch (_) {
-    // Silently look for bulbs whose IP changed (at most every 30 s); the next poll picks it up.
-    if (Date.now() - lastDiscover > 30000) discoverOnce({ timeoutMs: 2000 }).catch(() => {});
-    return view(b, null, false);
-  }
-}
 async function discoverAndSave() {
-  const found = await discoverOnce();
-  const byMac = new Map(found.map((d) => [store.normMac(d.mac), d]));
-  return store.list().map((b) => { const d = byMac.get(b.mac); return view(b, d ? d.pilot : null, !!d); });
+  await discoverOnce();
+  return Promise.all(store.list().map(withState));
+}
+/** setState via the device's driver; if it times out, let the driver relocate (IP change) and retry. */
+async function applyTo(dev, params) {
+  const drv = drivers.get(dev.driver);
+  if (!drv) return { key: dev.key, ok: false, error: `Unknown brand ${dev.driver}` };
+  if (dev.driver === 'tuya' && !dev.tuya) return { key: dev.key, ok: false, error: 'This device needs its key added first' };
+  const full = { ...dev, ...(dev.tuya || {}) };
+  try { await drv.setState(full, params); return { key: dev.key, ok: true, ip: dev.ip }; }
+  catch (e) {
+    if (!drv.isTimeout || !drv.isTimeout(e) || !drv.relocate) return { key: dev.key, ok: false, error: e.message };
+    try {
+      const nd = await drv.relocate(full);
+      if (nd && nd.ip) { store.update(dev.key, { ip: nd.ip }); await drv.setState({ ...full, ...nd }, params); return { key: dev.key, ok: true, ip: nd.ip, note: nd.ip !== dev.ip ? `IP changed to ${nd.ip}` : undefined }; }
+    } catch (_) {}
+    return { key: dev.key, ok: false, error: e.message };
+  }
 }
 const isTimeout = (e) => /^No reply/.test(e && e.message);
-/** setPilot; if the bulb doesn't answer at all (IP changed?) re-discover once and retry. */
-async function applyTo(b, params) {
-  try { await wiz.setPilot(b.ip, params); return { mac: b.mac, ok: true, ip: b.ip }; }
-  catch (e) {
-    if (!isTimeout(e)) return { mac: b.mac, ok: false, error: e.message };
-    const found = await discoverOnce({ timeoutMs: 2000 });
-    const d = found.find((x) => store.normMac(x.mac) === b.mac);
-    if (!d) return { mac: b.mac, ok: false, error: e.message };
-    try { await wiz.setPilot(d.ip, params); return { mac: b.mac, ok: true, ip: d.ip, note: d.ip !== b.ip ? `IP changed to ${d.ip}` : undefined }; }
-    catch (e2) { return { mac: b.mac, ok: false, error: e2.message }; }
-  }
-}
 let pinged = false;
 function pingInfo() {
   return {
     ok: true, name: 'wiz-control', version: VERSION, port: PORT, lan: HOST === '0.0.0.0',
-    bulbs: store.list().length, profile: store.getProfile(), defaultBulb: store.load().defaultBulb,
+    bulbs: store.list().length, devices: store.list().length, rooms: store.rooms(),
+    profile: store.getProfile(), defaultKey: store.load().defaultKey,
     wifi: net.info.wifi, computer: net.info.computer, platform: net.info.platform, lanIps: net.info.lanIps,
     packaged: !!process.pkg, config: store.CONFIG_PATH, appOrigin: APP_ORIGIN,
   };
 }
-const statusFor = (r) => (r.ok ? 200 : isTimeout(r) || /^No reply/.test(r.error || '') ? 504 : 502);
+const statusFor = (r) => (r.ok ? 200 : /No reply|timed out|did not respond/.test(r.error || '') ? 504 : 502);
+const validate = (body) => wiz.buildPilot(body); // shared param normaliser/validator
 
 /* ---------- routes ---------- */
 async function route(req, res) {
@@ -184,6 +206,7 @@ async function route(req, res) {
 
   if (parts[1] === 'ping') { pinged = true; return json(res, 200, pingInfo()); }
   if (parts[1] === 'scenes') return json(res, 200, Object.entries(wiz.SCENES).map(([id, name]) => ({ id: +id, name, dynamic: wiz.DYNAMIC_SCENES.has(+id) })));
+  if (parts[1] === 'brands') return json(res, 200, drivers.brands());
   if (parts[1] === 'discover' && req.method === 'POST') return json(res, 200, await discoverAndSave());
 
   if (parts[1] === 'profile') {
@@ -194,38 +217,73 @@ async function route(req, res) {
   if (parts[1] === 'quit' && req.method === 'POST') { json(res, 200, { ok: true }); setTimeout(() => process.exit(0), 300); return; }
   if (parts[1] === 'reset' && req.method === 'POST') { store.forgetAll(); store.clearProfile(); return json(res, 200, { ok: true }); }
 
-  if (parts[1] === 'all' && req.method === 'POST') {
-    const params = wiz.buildPilot(await readBody(req));
-    const results = await Promise.all(store.list().map((b) => applyTo(b, params)));
-    const anyOk = results.some((r) => r.ok) || results.length === 0;
-    return json(res, anyOk ? 200 : 502, { params, results });
+  // Add flow: scan for addable devices of one brand (not saved yet).
+  if (parts[1] === 'scan' && req.method === 'POST') {
+    const { driver = 'wiz' } = await readBody(req);
+    if (driver === 'wiz') return json(res, 200, { driver, found: await drivers.get('wiz').discover({}) });
+    if (driver === 'tuya') { const saved = new Set(store.list().map((d) => d.key)); return json(res, 200, { driver, found: (await drivers.get('tuya').discover({})).map((d) => ({ ...d, saved: saved.has('tuya:' + d.id) })) }); }
+    if (driver === 'hue') return json(res, 200, { driver, bridges: await drivers.get('hue').findBridgeIps() });
+    return json(res, 400, { error: `Unknown brand ${driver}` });
+  }
+  // Add a device configured by hand (Tuya key, or a WiZ device by IP).
+  if (parts[1] === 'add' && req.method === 'POST') {
+    const body = await readBody(req);
+    const driver = body.driver;
+    if (driver === 'tuya') {
+      if (!body.id || !body.key) return json(res, 400, { error: 'Tuya needs the device id and local key' });
+      if (String(body.key).length !== 16) return json(res, 400, { error: 'The Tuya local key is 16 characters' });
+      const rec = { driver: 'tuya', id: String(body.id), ip: body.ip, name: body.name, kind: body.kind || 'bulb', version: body.version || '3.3', tuya: { key: String(body.key), version: body.version || '3.3' }, caps: drivers.get('tuya').caps({ kind: body.kind || 'bulb' }) };
+      const saved = store.addDevice(rec);
+      return json(res, 200, await withState(saved));
+    }
+    return json(res, 400, { error: `Cannot add ${driver} this way` });
+  }
+  // Hue: pair with a bridge (after the link button is pressed) and import its lights.
+  if (parts[1] === 'hue' && parts[2] === 'pair' && req.method === 'POST') {
+    const { ip } = await readBody(req);
+    if (!ip) return json(res, 400, { error: 'Which bridge? Provide its IP.' });
+    let bridge; try { bridge = await drivers.get('hue').pair(ip); } catch (e) { return json(res, 400, { error: e.message }); }
+    const bridgeRec = { ...bridge, id: bridge.ip };
+    store.saveHueBridge(bridgeRec);
+    let lights = []; try { lights = await drivers.get('hue').listLights(bridgeRec); } catch (e) { return json(res, 200, { paired: true, added: 0, error: e.message }); }
+    lights.forEach((l) => store.addDevice(l));
+    return json(res, 200, { paired: true, added: lights.length, devices: await Promise.all(lights.map((l) => withState(store.get(l.key) || l))) });
   }
 
-  if (parts[1] === 'bulbs') {
+  if (parts[1] === 'all' && req.method === 'POST') {
+    const params = validate(await readBody(req));
+    const results = await Promise.all(store.list().map((b) => applyTo(b, params)));
+    return json(res, results.some((r) => r.ok) || results.length === 0 ? 200 : 502, { params, results });
+  }
+
+  // Devices (and the legacy /api/bulbs alias). Path segment is the device key or a bare MAC.
+  if (parts[1] === 'bulbs' || parts[1] === 'devices') {
     if (parts.length === 2 && req.method === 'GET') return json(res, 200, await Promise.all(store.list().map(withState)));
     if (parts.length === 2 && req.method === 'DELETE') { store.forgetAll(); return json(res, 200, { ok: true }); }
-    const mac = store.normMac(parts[2]);
-    const b = store.load().bulbs[mac];
-    if (!b) return json(res, 404, { error: `Unknown bulb ${parts[2]}` });
+    const key = decodeURIComponent(parts[2]);
+    const b = store.get(key) || store.get('wiz:' + store.normMac(key));
+    if (!b) return json(res, 404, { error: `Unknown device ${key}` });
     if (parts.length === 3 && req.method === 'GET') return json(res, 200, await withState(b));
     if (parts.length === 3 && req.method === 'POST') {
-      const params = wiz.buildPilot(await readBody(req));
+      const params = validate(await readBody(req));
       const r = await applyTo(b, params);
       return json(res, statusFor(r), { ...r, params });
     }
     if (parts[3] === 'toggle' && req.method === 'POST') {
-      let p; try { p = await wiz.getPilot(b.ip); } catch (e) { return json(res, isTimeout(e) ? 504 : 502, { mac, ok: false, error: e.message }); }
-      const r = await applyTo(b, { state: !p.state });
-      return json(res, statusFor(r), { ...r, state: !p.state });
+      const drv = drivers.get(b.driver);
+      let st; try { st = await drv.getState({ ...b, ...(b.tuya || {}) }); } catch (e) { return json(res, statusFor({ error: e.message }), { key: b.key, ok: false, error: e.message }); }
+      const r = await applyTo(b, { state: !st.on });
+      return json(res, statusFor(r), { ...r, state: !st.on });
     }
     if (parts.length === 3 && req.method === 'PATCH') {
       const body = await readBody(req);
       const patch = {};
       if (typeof body.name === 'string' && body.name.trim()) patch.name = body.name.trim().slice(0, 40);
-      if (body.default) store.setDefault(mac);
-      return json(res, 200, store.update(mac, patch));
+      if (typeof body.room === 'string') patch.room = body.room;
+      if (body.default) store.setDefault(b.key);
+      return json(res, 200, store.update(b.key, patch));
     }
-    if (parts.length === 3 && req.method === 'DELETE') { store.forget(mac); return json(res, 200, { ok: true }); }
+    if (parts.length === 3 && req.method === 'DELETE') { store.forget(b.key); return json(res, 200, { ok: true }); }
   }
   return json(res, 404, { error: 'Not found' });
 }

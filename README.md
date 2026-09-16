@@ -130,9 +130,19 @@ WiZ bulbs accept JSON over UDP on port 38899 from any device on the LAN. `getPil
 - "Log out" in the app only signs that browser out of the home. Nothing on the bridge is deleted; "Reset" in Settings does that.
 - Browsers only let a website read from the bridge if its origin is on the allow list, and the bridge refuses state changes from any other site (it also checks the Host header, so DNS-rebinding tricks don't work). Chrome asks you once before a public site may reach your local network.
 
-## Other brands
+## Brands
 
-Only WiZ (sold as "Philips Smart Wi-Fi LED" in many countries) is supported. Tuya-based bulbs such as Wipro and Syska encrypt local commands with a per-device key that only Tuya's developer platform hands out, so they need a different approach. Philips Hue uses Zigbee through the Hue Bridge and has its own local API.
+Add devices from the dashboard with **Add device**, then control them all together.
+
+| Brand | How it connects | Notes |
+| --- | --- | --- |
+| **Philips WiZ** | Local Wi-Fi (UDP) | Found automatically. Bulbs, strips, plugs. |
+| **Wipro / Tuya** (Beta) | Local Wi-Fi (encrypted) | Wipro, Syska and most Tuya bulbs and plugs. Needs a one-time **local key** from a free [Tuya developer account](https://iot.tuya.com); the Add flow explains how. |
+| **Philips Hue** (Beta) | Hue Bridge (local REST) | Press the bridge's link button to pair, then all its bulbs import. |
+
+Smart plugs and switches show as a simple on/off tile. Devices can be grouped into **rooms**.
+
+Beta drivers are implemented to each protocol's spec and unit-tested, but haven't yet been verified against physical hardware in this project — please report anything that misbehaves.
 
 ## License
 
